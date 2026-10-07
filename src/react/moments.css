@@ -1,0 +1,88 @@
+.moments-package {
+  width: min(23rem, 100%);
+  color: #20242a;
+  font: 14px/1.5 system-ui, sans-serif;
+  text-align: left;
+  color-scheme: light;
+}
+
+.moments-package,
+.moments-package * { box-sizing: border-box; }
+
+.moments-package__panel {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  padding: 1rem;
+  border: 1px solid #aeb5bf;
+  border-radius: .5rem;
+  background: #fff;
+  box-shadow: 0 4px 20px #0002;
+  overflow-wrap: anywhere;
+}
+.moments-package__body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px; }
+.moments-package__panel > header, .moments-package__footer { flex: none; }
+.moments-package__footer { padding-top: .65rem; border-top: 1px solid #dce0e6; }
+.moments-package h2 { font-size: 1rem; line-height: 1.4; margin: .5rem 0; }
+.moments-package input, .moments-package textarea { box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #858e9b; border-radius: .25rem; background: #f8f9fb; color: #20242a; padding: .5rem .6rem; font: 15px/1.5 system-ui, sans-serif; }
+.moments-package textarea { resize: vertical; }
+.moments-package input:focus-visible, .moments-package textarea:focus-visible { outline: 2px solid #245fc4; outline-offset: 2px; }
+.moments-package input[aria-invalid="true"], .moments-package textarea[aria-invalid="true"] { border-color: #9f2929; }
+.moments-package__error { color: #9f2929; }
+.moments-package form { display: grid; gap: .5rem; margin-bottom: .75rem; }
+
+.moments-package__row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.moments-package header { justify-content: space-between; }
+.moments-package header strong { flex: 1; min-width: 0; }
+.moments-package p { margin: .6rem 0; }
+.moments-package__checkpoint { font-weight: 600; }
+.moments-package button,
+.moments-package select {
+  min-height: 2.25rem;
+  max-width: 100%;
+  margin: 0;
+  padding: .35rem .6rem;
+  border: 1px solid #858e9b;
+  border-radius: .25rem;
+  background: #f8f9fb;
+  color: #20242a;
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.moments-package button { cursor: pointer; }
+.moments-package button:hover:enabled { background: #e9edf3; }
+.moments-package button:disabled { cursor: default; opacity: .5; }
+.moments-package button:focus-visible,
+.moments-package select:focus-visible,
+.moments-package summary:focus-visible { outline: 2px solid #245fc4; outline-offset: 2px; }
+.moments-package details { border-top: 1px solid #dce0e6; margin-top: .8rem; padding-top: .6rem; }
+.moments-package summary { cursor: pointer; font-weight: 600; }
+.moments-package label { display: block; margin: .6rem 0 .25rem; }
+.moments-package select { display: block; width: 100%; margin-bottom: .6rem; }
+.moments-package__confirmation { margin-top: .8rem; padding: .6rem; border: 1px solid #858e9b; border-radius: .25rem; }
+.moments-package dl { margin: .6rem 0; }
+.moments-package dt { font-weight: 600; }
+.moments-package dd { margin: 0 0 .5rem; }
+.moments-package code { font: .9em/1.5 ui-monospace, monospace; }
+.moments-package ol { padding-left: 1.25rem; margin: .6rem 0; }
+.moments-package__hint { color: #505965; font-size: .85em; }
+.moments-package > button { background: #fff; box-shadow: 0 2px 8px #0002; }
+
+@media (max-width: 400px) {
+  .moments-package { width: 100%; }
+  .moments-package__panel { max-height: calc(100dvh - 1rem); padding: .75rem; }
+}
+@media (max-width: 480px) {
+  .moments-package button, .moments-package select { min-height: 40px; }
+}
+@media (prefers-color-scheme: dark) {
+  .moments-package { color: #e5e9ef; color-scheme: dark; }
+  .moments-package__panel, .moments-package > button { background: #20242a; border-color: #727c8b; }
+  .moments-package button, .moments-package select, .moments-package input, .moments-package textarea { background: #2a3038; color: #e5e9ef; border-color: #8894a5; }
+  .moments-package button:hover:enabled { background: #38424e; }
+  .moments-package__hint { color: #b5becb; }
+  .moments-package__error { color: #ffa9a9; }
+}

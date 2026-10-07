@@ -1,0 +1,61 @@
+{
+  "name": "@alpine/moments",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Open a real application at a verified checkpoint, explore by hand, and continue the same journey.",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "docs",
+    "ROADMAP.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "moments": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./styles.css": "./dist/react/moments.css",
+    "./protocol": {
+      "types": "./dist/internal/protocol.d.ts",
+      "import": "./dist/internal/protocol.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc6 -p tsconfig.json && node scripts/copy-assets.mjs",
+    "check-types": "tsc6 -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "peerDependencies": {
+    "@playwright/test": "^1.60.0",
+    "react": "^18.3.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "tsx": "^4.20.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0",
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.3.3",
+    "react": "18.3.1",
+    "typescript": "npm:@typescript/typescript6@6.0.2"
+  }
+}
