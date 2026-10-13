@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { MomentCommandRequest, MomentCommandReply, MomentProgress, MomentsView } from './internal/protocol.js';
+import type { MomentCatalogue, MomentSelection, MomentCommandRequest, MomentCommandReply, MomentProgress, MomentsView } from './internal/protocol.js';
 import type { MomentSetup, SetupDefinition } from './setup.js';
 export type FailureStage = 'admission' | 'browser' | 'create' | 'enter' | 'verify' | 'reconcile' | 'cleanup' | 'persist' | 'close';
 export type CleanupOutcome = 'complete' | 'neutralized-with-residue';
@@ -37,6 +37,7 @@ export type MomentResult = {
     journeyId: string;
     target: string;
     previousRunRef?: string;
+    selection?: MomentSelection;
     setup?: MomentSetup;
     replacementRequested?: { checkpointId: string; setup: MomentSetup };
     activity: MomentsView['activity'];
@@ -60,7 +61,8 @@ export type MomentResult = {
 export type MomentsConfig = {
     baseURL: string;
     journeys: readonly JourneyDefinition[];
-    beforeRun(): Promise<void>;
+    beforeRun(journeyId: string): Promise<void>;
+    catalogue?: { view: MomentCatalogue; admit(target: string): Promise<void> };
 } & ({
     outputDir?: string;
     writeReceipt?: never;

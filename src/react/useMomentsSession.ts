@@ -67,8 +67,10 @@ export function useMomentsSession() {
         ? current?.checkpoints.find(point => point.id === command.checkpointId)?.opening : undefined;
       if (!bridge || bridge !== window.moments || bridge.packageVersion !== PACKAGE_VERSION || !current || current.runRef !== intent.runRef
         || (intent.expectedRevision !== undefined && current.revision !== intent.expectedRevision)
-        || (intent.command.kind === "open" && opening !== intent.opening)) {
-        setMessage(changedMessage); return;
+        || (intent.command.kind === "open" && opening !== intent.opening)
+        || (command.kind === "select" && (current?.catalogue?.entries.find(entry => entry.target === command.target)?.availability.kind !== "available"
+          || (current.selection !== undefined && current.selection.phase !== "started")))) {
+        setMessage(changedMessage); return command.kind === "select" ? { accepted: false, reason: "stale" } : undefined;
       }
       const reply = await bridge.command({ runRef: intent.runRef, revision: current.revision, command: intent.command });
       if (epoch !== lifetime.current) return;
@@ -83,5 +85,5 @@ export function useMomentsSession() {
       if (epoch === lifetime.current) setSending(false);
     }
   }
-  return { connection, sending, message, submit, dismissReviewFeedback };
+  return { connection, sending, message, submit, dismissReviewFeedback, refresh: () => read(lifetime.current) };
 }

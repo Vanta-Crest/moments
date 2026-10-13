@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import type { FailureStage, JourneyDefinition, JourneyDriver, MomentResult, MomentSession, MomentsConfig, OpenMomentOptions } from './types.js';
-import { PACKAGE_VERSION, describeMomentFailure, parseMomentCommandRequest, type MomentCommandRequest, type MomentCommandReply, type MomentProgress, type MomentsView, type PlaybackView } from './internal/protocol.js';
+import { PACKAGE_VERSION, describeMomentFailure, parseMomentCommandRequest, type MomentCommandRequest, type MomentCommandReply, type MomentProgress, type MomentSelection, type MomentsView, type PlaybackView } from './internal/protocol.js';
 import { createWriter } from './writer.js';
 import { BrowserSetupFailure } from './internal/browser-failure.js';
 import { MomentSetupError, resolveSetup, type MomentSetup } from './setup.js';
@@ -50,6 +50,17 @@ export async function openWithBrowser(config: MomentsConfig, options: OpenMoment
             throw Error('Duplicate journey');
         ids.add(j.id);
     }
+    if (config.catalogue) {
+        const targets = new Set<string>();
+        for (const entry of config.catalogue.view.entries) {
+            if (targets.has(entry.target)) throw Error('Duplicate catalogue target');
+            targets.add(entry.target);
+            const split = entry.target.lastIndexOf('.');
+            if (entry.availability.kind === 'available' && !journeys.some(journey =>
+                journey.id === entry.target.slice(0, split) && journey.checkpoints.some(point => point.id === entry.target.slice(split + 1))))
+                throw Error('Catalogue target has no connected journey');
+        }
+    }
     const split = options.target.lastIndexOf('.'), definition = journeys.find(j => j.id === options.target.slice(0, split)), target = options.target.slice(split + 1);
     if (!definition?.checkpoints.some(p => p.id === target))
         throw Error('Unknown moment target');
@@ -72,8 +83,11 @@ class Session implements MomentSession {
     private closing?: Promise<MomentResult>;
     private ending = false;
     private terminal = false;
+    private custodyHeld = false;
     private playback: PlaybackView = { kind: 'idle' };
     private progress?: MomentProgress;
+    private selection?: MomentSelection;
+    private readonly selectionRequests = new Set<string>();
     private wakePlaybackWait?: () => void;
     private resolveDone!: (r: MomentResult) => void;
     readonly done = new Promise<MomentResult>(resolve => this.resolveDone = resolve);
@@ -110,15 +124,15 @@ class Session implements MomentSession {
             process.stderr.write('Moments: result persistence failed; completion is incomplete.\n');
         }
     }
-    /** A replacement must not destroy current custody when retention fails. */
-    private async persistBeforeReplacementCleanup(): Promise<boolean> {
+    /** A replacement or End must not destroy custody when its receipt cannot be saved. */
+    private async persistBeforeCustodyRelease(): Promise<boolean> {
         try {
             await this.writer(this.currentResult());
             return true;
         } catch {
             this.failureRecord('persist', undefined, 'persistence-failed');
             this.activity('needs-attention', this.destination);
-            process.stderr.write('Moments: replacement persistence failed; current run retained. Durable recovery was not established.\n');
+            process.stderr.write('Moments: custody receipt persistence failed; current run retained. Durable recovery was not established.\n');
             return false;
         }
     }
@@ -138,14 +152,14 @@ class Session implements MomentSession {
             void this.end();
     }
     private abort = () => { this.failureRecord('enter', this.destination, 'interrupted'); void this.end(); };
-    private async openRun(target: string, previousRunRef?: string, setup?: MomentSetup) {
+    private async openRun(target: string, previousRunRef?: string, setup?: MomentSetup, allocatedRunRef?: string, reuseBrowser = false) {
         const at = new Date().toISOString();
         this.result = {
-            schemaVersion: 2, packageVersion: PACKAGE_VERSION, sessionId: this.sessionId, runRef: randomUUID(), journeyId: this.definition.id, target, ...(previousRunRef ? { previousRunRef } : {}), ...(setup ? { setup } : {}), activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending'
+            schemaVersion: 2, packageVersion: PACKAGE_VERSION, sessionId: this.sessionId, runRef: allocatedRunRef ?? randomUUID(), journeyId: this.definition.id, target, ...(previousRunRef ? { previousRunRef } : {}), ...(setup ? { setup } : {}), ...(this.selection ? { selection: this.selection } : {}), activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending'
         };
         this.position = -1;
         this.driver = undefined;
-        this.browser = undefined;
+        if (!reuseBrowser) this.browser = undefined;
         this.failure = undefined;
         this.playback = { kind: 'idle' };
         this.progress = undefined;
@@ -154,12 +168,12 @@ class Session implements MomentSession {
         try {
             this.stage = 'admission';
             this.checkActive();
-            await this.config.beforeRun();
+            await this.config.beforeRun(this.definition.id);
             this.checkActive();
             await this.persist();
             this.checkActive();
             this.stage = 'browser';
-            this.browser = await this.factory(this.config.baseURL, this.options.headless ?? !!this.options.once, {
+            this.browser ??= await this.factory(this.config.baseURL, this.options.headless ?? !!this.options.once, {
                 read: () => this.view(), command: r => this.command(r)
             }, () => { void this.end(); });
             this.checkActive();
@@ -183,14 +197,18 @@ class Session implements MomentSession {
             this.recordOperationFailure();
             if (error instanceof BrowserSetupFailure && error.closeFailed)
                 this.failureRecord('close');
-            this.terminal = true;
+            this.terminal = !reuseBrowser;
+            if (reuseBrowser) this.selectionPhase('blocked');
             this.activity('needs-attention', this.destination);
-            await this.tryPersist();
+            if (reuseBrowser) await this.retainBlockedSelection();
+            else await this.tryPersist();
         }
     }
     view(): MomentsView {
-        const r = this.result, last = r?.observations.filter(x => x.status === 'passed').at(-1), available = !!r && !this.ending && !this.terminal && ['ready', 'needs-attention'].includes(r.activity), advance = available && !this.failure;
+        const r = this.result, last = r?.observations.filter(x => x.status === 'passed').at(-1), selectionHeld = this.selection !== undefined && this.selection.phase !== 'started', available = !!r && !this.ending && !this.terminal && !this.custodyHeld && !selectionHeld && ['ready', 'needs-attention'].includes(r.activity), advance = available && !this.failure;
         return {
+            ...(this.config.catalogue ? { catalogue: structuredClone(this.config.catalogue.view) } : {}),
+            ...(this.selection ? { selection: { ...this.selection } } : {}),
             sessionId: this.sessionId, runRef: r?.runRef, revision: this.revision, journey: {
                 id: this.definition.id, title: this.definition.title,
                 ...(this.definition.restartExplanation ? { restartExplanation: this.definition.restartExplanation } : {})
@@ -198,7 +216,7 @@ class Session implements MomentSession {
                 check: available && (!this.failure || this.failure.stage === 'verify' || this.failure.stage === 'reconcile') && this.position >= 0,
                 continue: advance && this.position + 1 < this.definition.checkpoints.length,
                 play: advance && this.position + 1 < this.definition.checkpoints.length,
-                pause: !this.ending && this.playback.kind === 'playing' && !this.playback.pauseRequested,
+                pause: !this.ending && !this.custodyHeld && this.playback.kind === 'playing' && !this.playback.pauseRequested,
                 restart: available, end: !this.ending && r?.activity !== 'closed'
             }, playback: { ...this.playback }, ...(this.progress ? { progress: this.progress } : {}),
             ...(this.definition.setup && r.setup ? { setup: {
@@ -209,7 +227,9 @@ class Session implements MomentSession {
                     checkpointId: last.checkpointId, at: last.at
                 } } : {}), ...(this.definition.checkpoints[this.position + 1] ? { nextId: this.definition.checkpoints[this.position + 1]!.id } : {}), checkpoints: this.definition.checkpoints.map((p, i) => ({
                 id: p.id, title: p.title, description: p.description ?? '', status: r?.observations.filter(o => o.checkpointId === p.id).at(-1)?.status ?? 'not-checked', opening: !available || (!advance && i >= this.position) ? 'unavailable' : i < this.position ? 'fresh-run' : 'reuse'
-            })), ...(this.failure ? { message: this.failure.stage === 'persist' && r.replacementRequested && this.driver
+            })), ...(this.failure ? { message: this.custodyHeld
+                ? 'The current run is retained because cleanup, receipt storage, or browser closure failed. Resolve the failure, then retry End.'
+                : this.failure.stage === 'persist' && r.replacementRequested && this.driver
                 ? 'Replacement was stopped because its receipt could not be saved. The current run is retained; durable recovery was not established. Restore receipt storage, then restart or end.'
                 : describeMomentFailure(this.failure, this.definition.checkpoints.find(point => point.id === this.failure?.checkpointId)) } : {})
         };
@@ -237,6 +257,9 @@ class Session implements MomentSession {
             void this.end();
             return { accepted: true };
         }
+        if (this.custodyHeld) return { accepted: false, reason: 'unavailable' };
+        if (request.command.kind === 'select') return this.select(request.command);
+        if (this.selection && this.selection.phase !== 'started') return { accepted: false, reason: 'unavailable' };
         if (request.command.kind === 'pause') {
             if (!this.view().controls.pause || this.playback.kind !== 'playing') return { accepted: false, reason: 'unavailable' };
             this.playback = { ...this.playback, pauseRequested: true };
@@ -280,25 +303,21 @@ class Session implements MomentSession {
         this.operation = Promise.resolve().then(async () => {
             try {
                 if (command.kind === 'check') {
-                    if (this.failure?.stage === 'reconcile') await this.reconcilePosition(true);
-                    else {
-                        this.stage = 'verify';
-                        await this.driver!.verify(target);
-                        for (let i = this.position + 1; i < this.index(target); i++)
-                            await this.record(i, 'manual', 'skipped');
-                        await this.record(this.index(target), 'manual', 'passed');
-                        this.position = this.index(target);
-                    }
+                    // A manual action may have advanced the admitted owner checkpoint.
+                    // Reconcile and verify that exact observation before adopting it.
+                    await this.reconcilePosition(true);
                 }
                 else if (replacement) {
-                    if (setup && !await this.persistBeforeReplacementCleanup()) return;
+                    if (setup && !await this.persistBeforeCustodyRelease()) return;
                     if (this.ending) return;
                     const previous = this.result.runRef;
-                    if (!await this.closeRun(!!setup)) return;
+                    if (!await this.closeRun()) return;
                     if (this.terminal)
                         return;
-                    if (!this.ending)
+                    if (!this.ending) {
+                        this.selection = undefined;
                         await this.openRun(target, previous, setup);
+                    }
                     if (this.terminal)
                         return;
                 }
@@ -324,6 +343,72 @@ class Session implements MomentSession {
                 void this.end();
         });
         return { accepted: true };
+    }
+    private selectionPhase(phase: MomentSelection['phase']) {
+        if (!this.selection) throw Error('Selection custody missing');
+        this.selection = { ...this.selection, phase };
+        this.result = { ...this.result, selection: this.selection };
+        this.revision++;
+    }
+    private select(command: Extract<MomentCommandRequest['command'], { kind: 'select' }>): MomentCommandReply {
+        const catalogue = this.config.catalogue;
+        if (!catalogue || this.terminal || this.selectionRequests.has(command.requestRef)
+            || (this.selection && this.selection.phase !== 'started')) return { accepted: false, reason: 'unavailable' };
+        if (this.result.activity !== 'ready' || this.failure) return { accepted: false, reason: 'busy' };
+        const entry = catalogue.view.entries.find(entry => entry.target === command.target);
+        const split = command.target.lastIndexOf('.');
+        const next = this.config.journeys.find(journey => journey.id === command.target.slice(0, split));
+        const target = command.target.slice(split + 1);
+        if (entry?.availability.kind !== 'available' || !next?.checkpoints.some(point => point.id === target))
+            return { accepted: false, reason: 'unavailable' };
+        const setup = resolveSetup(next.setup);
+        this.selectionRequests.add(command.requestRef);
+        this.selection = { requestRef: command.requestRef, fromRunRef: this.result.runRef,
+            toRunRef: randomUUID(), target: command.target, phase: 'requested' };
+        this.result = { ...this.result, selection: this.selection };
+        this.activity('working');
+        this.operation = Promise.resolve().then(async () => {
+            try {
+                this.stage = 'admission';
+                await catalogue.admit(command.target);
+                if (!await this.persistBeforeCustodyRelease()) { this.selectionPhase('blocked'); return; }
+                if (this.ending) return;
+                this.selectionPhase('cleaning');
+                // The owned page is retained across catalogue selections. No receipt write can
+                // lose its browser, and no subordinate driver receives browser-close authority.
+                if (!await this.closeRun(true)) { this.selectionPhase('blocked'); await this.retainBlockedSelection(); return; }
+                if (this.ending) return;
+                const original = this.selection!;
+                this.definition = defineJourney(next);
+                this.selectionPhase('starting');
+                await this.openRun(target, original.fromRunRef, setup, original.toRunRef, true);
+                const opened = this.view();
+                if (!this.terminal && opened.activity === 'ready' && opened.selection?.phase !== 'blocked') {
+                    this.selectionPhase('started');
+                    await this.persist();
+                }
+            } catch {
+                // Admission and predecessor failures hold the exact original custody.
+                if (this.result.runRef === this.selection?.fromRunRef) {
+                    this.failureRecord(this.stage);
+                    this.selectionPhase('blocked');
+                    this.activity('needs-attention');
+                    await this.retainBlockedSelection();
+                } else {
+                    this.recordOperationFailure();
+                    this.terminal = false;
+                    this.selectionPhase('blocked');
+                    this.activity('needs-attention');
+                    await this.retainBlockedSelection();
+                }
+            }
+            if (this.terminal && !this.ending) void this.end();
+        });
+        return { accepted: true };
+    }
+    private async retainBlockedSelection() {
+        try { await this.writer(this.currentResult()); }
+        catch { /* Existing custody remains held; failure is visible in the current observation. */ }
     }
     private recordOperationFailure() {
         if (this.terminal) return;
@@ -424,42 +509,59 @@ class Session implements MomentSession {
         if (this.playback.kind === 'playing') this.playback = { ...this.playback, phase: 'advancing' };
         this.revision++;
     }
-    private async closeRun(protectReplacement = false): Promise<boolean> {
-        if (this.result.activity === 'closed')
+    private async holdCloseCustody(): Promise<false> {
+        this.custodyHeld = true;
+        // Do not turn a held failure into an automatic End retry. Only explicit
+        // End may retry; every other command stays unavailable for this run.
+        this.terminal = false;
+        this.playback = { kind: 'idle' };
+        this.progress = undefined;
+        this.activity('needs-attention');
+        try { await this.writer(this.currentResult()); }
+        catch {
+            this.failureRecord('persist', undefined, 'persistence-failed');
+            this.activity('needs-attention');
+            process.stderr.write('Moments: held custody could not be persisted; the current run remains retained.\n');
+        }
+        return false;
+    }
+    private async closeRun(retainBrowser = false): Promise<boolean> {
+        if (this.result.activity === 'closed' && !this.browser)
             return true;
         this.activity('closing');
-        if (protectReplacement) {
-            if (!await this.persistBeforeReplacementCleanup()) return false;
-        } else await this.tryPersist();
+        if (!await this.persistBeforeCustodyRelease()) return this.holdCloseCustody();
         try {
-            const cleanup = await this.driver?.cleanup() ?? 'complete';
+            this.stage = 'cleanup';
+            const cleanup = this.result.cleanup === 'complete' || this.result.cleanup === 'neutralized-with-residue'
+                ? this.result.cleanup : await this.driver?.cleanup() ?? 'complete';
             if (cleanup !== 'complete' && cleanup !== 'neutralized-with-residue')
                 throw Error('Invalid cleanup');
-            this.result = {
-                ...this.result, cleanup
-            };
+            this.result = { ...this.result, cleanup };
         }
         catch {
-            this.terminal = true;
-            this.result = {
-                ...this.result, cleanup: 'incomplete'
-            };
+            this.result = { ...this.result, cleanup: 'incomplete' };
             this.failureRecord('cleanup');
+            return this.holdCloseCustody();
         }
-        try {
-            await this.browser?.close();
-        }
-        catch {
-            this.terminal = true;
-            this.failureRecord('close');
-        }
-        this.driver = undefined;
-        this.browser = undefined;
         this.result = {
             ...this.result, outcome: this.result.failures.length ? 'incomplete' : this.result.cleanup === 'neutralized-with-residue' ? 'neutralized-with-residue' : 'complete'
         };
+        // Retain both references until the terminal candidate is durable. A
+        // retry carries the successful cleanup result, so cleanup cannot replay.
         this.activity('closed');
-        await this.tryPersist();
+        if (!await this.persistBeforeCustodyRelease()) return this.holdCloseCustody();
+        if (!retainBrowser) {
+            try {
+                await this.browser?.close();
+            }
+            catch {
+                this.failureRecord('close');
+                return this.holdCloseCustody();
+            }
+            this.browser = undefined;
+        }
+        this.driver = undefined;
+        this.custodyHeld = false;
         return true;
     }
     private finish() { this.options.signal?.removeEventListener('abort', this.abort); const result = this.currentResult(); this.resolveDone(result); return result; }
@@ -471,7 +573,14 @@ class Session implements MomentSession {
         this.progress = undefined;
         this.wakePlaybackWait?.();
         this.revision++;
-        this.closing = (async () => { await this.operation; await this.closeRun(); return this.finish(); })();
+        this.closing = (async () => {
+            await this.operation;
+            if (!await this.closeRun()) {
+                this.ending = false; this.closing = undefined;
+                return this.currentResult();
+            }
+            return this.finish();
+        })();
         return this.closing;
     }
 }

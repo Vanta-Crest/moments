@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Page } from '@playwright/test';
 import { openWithBrowser } from './runner.js';
-import type { MomentResult, JourneyDriver } from './types.js';
+import type { MomentResult, MomentSession, JourneyDriver } from './types.js';
 import { MomentSetupError, validateSetupValues, type MomentSetup, type SetupDefinition } from './setup.js';
 test('End during replacement admission prevents fresh acquisition', async () => {
     const admitted = latch(), gate = latch();
@@ -53,6 +53,7 @@ function fixture(options: {
     verify?: (id: string) => Promise<void>;
     cleanupFails?: boolean;
     closeFails?: boolean;
+    cleanup?: () => Promise<void>;
 } = {}) {
     const calls: string[] = [];
     const receipts: MomentResult[] = [];
@@ -60,6 +61,7 @@ function fixture(options: {
     const driver: JourneyDriver = {
         enter: async (id) => { calls.push(`enter:${id}`); await options.enter?.(id); current = id; }, verify: async (id) => { calls.push(`verify:${id}`); await options.verify?.(id); }, reconcile: async () => current, cleanup: async () => {
             calls.push('cleanup');
+            await options.cleanup?.();
             if (options.cleanupFails)
                 throw Error('private');
             return 'complete';
@@ -90,27 +92,19 @@ function fixture(options: {
         calls, receipts, open
     };
 }
-for (const phase of ['initial', 'intermediate', 'closing', 'final'] as const)
+for (const phase of ['initial', 'intermediate'] as const)
     test(`writer ${phase} failure cannot skip finalization`, async () => {
         let failed = false;
         const f = fixture({ failWrite: r => {
-                const match = phase === 'initial' ? r.activity === 'preparing' : phase === 'intermediate' ? r.observations.length > 0 && r.activity !== 'closing' && r.activity !== 'closed' : phase === 'closing' ? r.activity === 'closing' : r.activity === 'closed';
+                const match = phase === 'initial' ? r.activity === 'preparing' : r.observations.length > 0 && r.activity !== 'closing' && r.activity !== 'closed';
                 if (match && !failed) {
                     failed = true;
                     return true;
                 }
                 return false;
             } });
-        if (phase === 'initial' || phase === 'intermediate') {
-            await assert.rejects(f.open());
-            assert.equal(f.calls.includes('browser'), phase !== 'initial');
-        }
-        else {
-            const s = await f.open();
-            const result = await s.end();
-            assert.equal(result.outcome, 'incomplete');
-            assert.equal(await s.done, result);
-        }
+        await assert.rejects(f.open());
+        assert.equal(f.calls.includes('browser'), phase !== 'initial');
         if (phase !== 'initial') {
             assert.equal(f.calls.filter(x => x === 'cleanup').length, 1);
             assert.equal(f.calls.filter(x => x === 'close').length, 1);
@@ -161,9 +155,125 @@ test('failed destination Check advances position without repeating action and re
     assert.equal(f.calls.filter(x => x === 'enter:second').length, 1);
     assert.equal((await s.end()).failures.length, 1);
 });
-test('cleanup and browser failures both survive and completion settles', async () => { const f = fixture({
-    cleanupFails: true, closeFails: true
-}); const s = await f.open(); const r = await s.end(); assert.deepEqual(r.failures.map(x => x.stage), ['cleanup', 'close']); assert.equal(r.outcome, 'incomplete'); assert.equal((await s.done).runRef, r.runRef); });
+// Completion must describe released custody. These injected boundary faults are
+// independent of native financial, sign-out, and SMTP cleanup coverage.
+async function assertHeld(session: MomentSession, runRef: string) {
+    let completed = false;
+    void session.done.then(() => { completed = true; });
+    await Promise.resolve();
+    assert.equal(completed, false, 'done must stay pending while custody is held');
+    assert.equal(session.currentResult().runRef, runRef);
+    assert.equal(session.currentResult().activity, 'needs-attention');
+    assert.equal(session.currentResult().outcome, 'incomplete');
+    assert.deepEqual(session.view().controls, {
+        check: false, continue: false, play: false, pause: false, restart: false, end: true
+    });
+    const view = session.view(), before = session.currentResult();
+    for (const command of [
+        { kind: 'check' }, { kind: 'continue' }, { kind: 'pause' },
+        { kind: 'play', checkpointId: 'third', pace: 'immediate' },
+        { kind: 'restart', checkpointId: 'first' }, { kind: 'open', checkpointId: 'first' },
+        { kind: 'select', requestRef: 'held-selection', target: 'journey.first' }
+    ] as const) {
+        assert.equal(session.command({ runRef, revision: view.revision, command }).accepted, false);
+    }
+    assert.deepEqual(session.currentResult(), before);
+    assert.deepEqual(session.view(), view);
+}
+for (const phase of ['closing', 'final'] as const)
+    test(`End ${phase} receipt failure retains custody until explicit retry`, async () => {
+        let blocked = true;
+        const f = fixture({ failWrite: result => blocked && result.activity === (phase === 'closing' ? 'closing' : 'closed') });
+        const s = await f.open(), runRef = s.currentResult().runRef;
+        const held = await s.end();
+        assert.equal(held.failures.at(-1)?.code, 'persistence-failed');
+        assert.equal(held.cleanup, phase === 'closing' ? 'not-attempted' : 'complete');
+        await assertHeld(s, runRef);
+        assert.equal(f.calls.filter(x => x === 'cleanup').length, phase === 'closing' ? 0 : 1);
+        assert.equal(f.calls.includes('close'), false);
+        await s.end();
+        await assertHeld(s, runRef);
+        assert.equal(f.calls.filter(x => x === 'cleanup').length, phase === 'closing' ? 0 : 1);
+        assert.equal(f.calls.includes('close'), false);
+        blocked = false;
+        const finished = await s.end();
+        assert.equal(finished.activity, 'closed');
+        assert.equal(finished.outcome, 'incomplete');
+        assert.equal(await s.done, finished);
+        assert.equal(f.calls.filter(x => x === 'cleanup').length, 1);
+        assert.equal(f.calls.filter(x => x === 'close').length, 1);
+        if (phase === 'final') assert.ok(f.receipts.some(r => r.activity === 'closing' && r.cleanup === 'complete'));
+    });
+
+test('cleanup and browser faults retain custody and settle only after release retry', async () => {
+    const faults = { cleanupFails: true, closeFails: true }, f = fixture(faults), s = await f.open();
+    const runRef = s.currentResult().runRef;
+    const cleanupHeld = await s.end();
+    assert.deepEqual(cleanupHeld.failures.map(x => x.stage), ['cleanup']);
+    assert.equal(cleanupHeld.cleanup, 'incomplete');
+    assert.equal(f.calls.includes('close'), false, 'failed cleanup must not release the browser');
+    await assertHeld(s, runRef);
+    faults.cleanupFails = false;
+    const closeHeld = await s.end();
+    assert.deepEqual(closeHeld.failures.map(x => x.stage), ['cleanup', 'close']);
+    assert.equal(closeHeld.cleanup, 'complete');
+    await assertHeld(s, runRef);
+    assert.equal(f.calls.filter(x => x === 'cleanup').length, 2);
+    assert.equal(f.calls.filter(x => x === 'close').length, 1);
+    faults.closeFails = false;
+    const v = s.view();
+    assert.equal(s.command({ runRef, revision: v.revision, command: { kind: 'end' } }).accepted, true);
+    const finished = await s.end();
+    assert.equal(await s.done, finished);
+    assert.equal(finished.activity, 'closed');
+    assert.equal(finished.outcome, 'incomplete');
+    assert.deepEqual(finished.failures.map(x => x.stage), ['cleanup', 'close']);
+    assert.equal(f.calls.filter(x => x === 'cleanup').length, 2, 'successful cleanup is not replayed');
+    assert.equal(f.calls.filter(x => x === 'close').length, 2, 'the same retained browser is retried');
+    assert.equal(f.calls.filter(x => x === 'browser').length, 1);
+});
+
+test('failed browser close and failed held receipt preserve both failures until End retry', async () => {
+    let blockHeldReceipt = true;
+    const faults = { closeFails: true, failWrite: (result: MomentResult) => blockHeldReceipt
+        && result.activity === 'needs-attention' && result.failures.some(failure => failure.stage === 'close') };
+    const f = fixture(faults), s = await f.open(), runRef = s.currentResult().runRef;
+    const held = await s.end();
+    assert.deepEqual(held.failures.map(failure => failure.stage), ['close', 'persist']);
+    assert.equal(held.failures.at(-1)?.code, 'persistence-failed');
+    assert.equal(held.cleanup, 'complete');
+    await assertHeld(s, runRef);
+    assert.equal(f.calls.filter(call => call === 'cleanup').length, 1);
+    assert.equal(f.calls.filter(call => call === 'close').length, 1);
+    faults.closeFails = false; blockHeldReceipt = false;
+    const finished = await s.end();
+    assert.equal(await s.done, finished);
+    assert.equal(finished.activity, 'closed');
+    assert.equal(finished.outcome, 'incomplete');
+    assert.deepEqual(finished.failures.map(failure => failure.stage), ['close', 'persist']);
+    assert.equal(f.calls.filter(call => call === 'cleanup').length, 1);
+    assert.equal(f.calls.filter(call => call === 'close').length, 2);
+});
+
+test('overlapping End retries share one cleanup and release operation', async () => {
+    const cleaning = latch(), gate = latch();
+    const f = fixture({ cleanup: async () => { cleaning.release(); await gate.promise; } }), s = await f.open();
+    const first = s.end();
+    await cleaning.promise;
+    const second = s.end();
+    assert.equal(first, second);
+    let completed = false;
+    void s.done.then(() => { completed = true; });
+    await Promise.resolve();
+    assert.equal(completed, false);
+    assert.equal(f.calls.includes('close'), false);
+    gate.release();
+    const result = await first;
+    assert.equal(await second, result);
+    assert.equal(await s.done, result);
+    assert.equal(f.calls.filter(x => x === 'cleanup').length, 1);
+    assert.equal(f.calls.filter(x => x === 'close').length, 1);
+});
 test('failed manual adoption Check records skipped intermediate checkpoint', async () => {
     let fail = true;
     const writes: MomentResult[] = [];
@@ -194,24 +304,20 @@ test('failed manual adoption Check records skipped intermediate checkpoint', asy
     assert.equal(s.currentResult().observations.find(o => o.checkpointId === 'second')?.status, 'skipped');
     await s.end();
 });
-test('failed predecessor cleanup settles done and cannot open replacement', async () => {
-    const f = fixture({ cleanupFails: true });
-    const s = await f.open();
+test('failed predecessor cleanup holds completion and prevents replacement acquisition', async () => {
+    const faults = { cleanupFails: true }, f = fixture(faults), s = await f.open();
     const v = s.view();
-    s.command({
-        runRef: v.runRef!, revision: v.revision, command: {
-            kind: 'restart', checkpointId: 'first'
-        }
-    });
+    s.command({ runRef: v.runRef!, revision: v.revision, command: { kind: 'restart', checkpointId: 'first' } });
     await s.settled();
-    const result = await s.done;
-    assert.equal(result.activity, 'closed');
-    assert.equal(s.view().activity, 'closed');
-    assert.deepEqual(s.view().controls, {
-        check: false, continue: false, play: false, pause: false, restart: false, end: false
-    });
+    await assertHeld(s, v.runRef!);
     assert.equal(f.calls.filter(x => x === 'browser').length, 1);
-    assert.equal((await s.end()).runRef, result.runRef);
+    assert.equal(f.calls.includes('close'), false);
+    faults.cleanupFails = false;
+    const result = await s.end();
+    assert.equal(await s.done, result);
+    assert.equal(result.runRef, v.runRef);
+    assert.equal(result.activity, 'closed');
+    assert.equal(f.calls.filter(x => x === 'browser').length, 1);
 });
 test('aborted delayed admission never opens browser or driver', async () => {
     const admitted = latch(), gate = latch(), abort = new AbortController();
@@ -365,8 +471,9 @@ test('accepted setup is copied and frozen, and fresh navigation reuses active va
 });
 
 for (const phase of ['request', 'closing'] as const) test(`failed ${phase} persistence retains old custody without cleanup or replacement`, async () => {
+    let blocked = true;
     const f = configuredFixture({ write: async r => {
-        if (r.replacementRequested && (phase === 'request' || r.activity === 'closing')) throw Error('storage unavailable');
+        if (blocked && r.replacementRequested && (phase === 'request' || r.activity === 'closing')) throw Error('storage unavailable');
     } });
     const s = await f.open(), v = s.view();
     s.command({ runRef: v.runRef!, revision: v.revision,
@@ -379,6 +486,7 @@ for (const phase of ['request', 'closing'] as const) test(`failed ${phase} persi
     assert.equal(s.currentResult().setup!.values.name, 'Original');
     assert.equal(s.currentResult().replacementRequested!.setup.values.name, 'Candidate');
     assert.equal(s.currentResult().failures.at(-1)?.code, 'persistence-failed');
+    blocked = false;
     await s.end();
 });
 
@@ -402,11 +510,17 @@ for (const terminate of ['end', 'signal'] as const) test(`${terminate} while ret
 });
 
 for (const failure of ['cleanupFails', 'closeFails'] as const) test(`${failure} prevents replacement and retains both requested setups`, async () => {
-    const f = configuredFixture({ [failure]: true }), s = await f.open(), v = s.view();
+    const faults = { [failure]: true }, f = configuredFixture(faults), s = await f.open(), v = s.view();
     s.command({ runRef: v.runRef!, revision: v.revision,
         command: { kind: 'restart', checkpointId: 'first', setup: namedSetup('Candidate') } });
     await s.settled();
-    const result = await s.done;
+    await assertHeld(s, v.runRef!);
+    const held = s.currentResult();
+    assert.equal(held.setup!.values.name, 'Original');
+    assert.equal(held.replacementRequested!.setup.values.name, 'Candidate');
+    faults[failure] = false;
+    const result = await s.end();
+    assert.equal(await s.done, result);
     assert.equal(f.created.length, 1);
     assert.equal(result.setup!.values.name, 'Original');
     assert.equal(result.replacementRequested!.setup.values.name, 'Candidate');

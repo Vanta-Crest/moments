@@ -3,6 +3,10 @@ export * from '../setup.js';
 export const PACKAGE_VERSION = '0.0.0' as const;
 /** Browser-safe control contract. Product credentials never cross this boundary. */
 export type MomentCommand = {
+    kind: "select";
+    requestRef: string;
+    target: string;
+} | {
     kind: "continue";
 } | {
     kind: "check";
@@ -46,10 +50,26 @@ export type MomentCommandReply = {
     reason: "invalid-setup";
     issues: readonly SetupIssue[];
 };
+export type MomentCatalogueEntry = Readonly<{
+    target: string; title: string; group: string; purpose: string;
+    viewpoints: readonly string[]; expectedObservation: string;
+    prerequisites: readonly string[]; cleanup: string;
+    availability: { kind: "available" } | { kind: "unavailable"; reason: string };
+}>;
+export type MomentCatalogue = Readonly<{
+    runtimeRef: string; scopeLabel: string; entries: readonly MomentCatalogueEntry[];
+}>;
+/** One retained request, including its allocated successor identity before any cleanup. */
+export type MomentSelection = Readonly<{
+    requestRef: string; fromRunRef: string; toRunRef: string; target: string;
+    phase: "requested" | "cleaning" | "blocked" | "starting" | "started";
+}>;
 export type MomentsView = {
     sessionId: string;
     runRef?: string;
     revision: number;
+    catalogue?: MomentCatalogue;
+    selection?: MomentSelection;
     journey: {
         id: string;
         title: string;
@@ -101,6 +121,13 @@ export function parseMomentCommandRequest(value: unknown): MomentCommandRequest 
     const command = request.command as Record<string, unknown>;
     if (Object.keys(request).length !== 3 || Object.keys(request).some(key => !["runRef", "revision", "command"].includes(key)))
         throw new Error("Invalid Moments command");
+    if (command.kind === "select" && Object.keys(command).length === 3
+        && Object.keys(command).every(key => ["kind", "requestRef", "target"].includes(key))
+        && typeof command.requestRef === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(command.requestRef)
+        && typeof command.target === "string" && /^[a-z][a-z0-9.-]{0,191}$/.test(command.target)) {
+        return { runRef: request.runRef, revision: request.revision as number,
+            command: { kind: "select", requestRef: command.requestRef, target: command.target } };
+    }
     if (command.kind === "continue" || command.kind === "check" || command.kind === "end" || command.kind === "pause") {
         if (Object.keys(command).length !== 1)
             throw new Error("Invalid Moments command");
