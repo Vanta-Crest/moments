@@ -25,13 +25,13 @@ Exit status: 0 completed, 1 incomplete, 2 invalid arguments/config,
 `;
 
 class UsageError extends Error {}
-type Arguments = { command: 'list' | 'open'; configPath?: string; setupPath?: string; target?: string; once: boolean; headless: boolean };
+type Arguments = { command: 'list' | 'open'; configPath?: string; setupPath?: string; outputPath?: string; target?: string; once: boolean; headless: boolean };
 
 function parseArguments(args: string[]): Arguments | undefined {
     if (!args.length || (args.length === 1 && ['--help', '-h'].includes(args[0]!))) return undefined;
     const command = args[0];
     if (command !== 'list' && command !== 'open') throw new UsageError('Choose list or open. Use moments --help for usage.');
-    let configPath: string | undefined, setupPath: string | undefined, target: string | undefined, once = false, headless = false;
+    let configPath: string | undefined, setupPath: string | undefined, outputPath: string | undefined, target: string | undefined, once = false, headless = false;
     for (let i = 1; i < args.length; i++) {
         const arg = args[i]!;
         if (arg === '--config') {
@@ -42,6 +42,10 @@ function parseArguments(args: string[]): Arguments | undefined {
             const next = args[++i];
             if (command !== 'open' || setupPath !== undefined || !next || next.startsWith('-')) throw new UsageError('Use --setup once with a file path on moments open.');
             setupPath = next;
+        } else if (arg === '--output') {
+            const next = args[++i];
+            if (command !== 'open' || outputPath !== undefined || !next || next.startsWith('-')) throw new UsageError('Use --output once with a directory on moments open.');
+            outputPath = next;
         } else if (arg === '--once') {
             if (command !== 'open' || once) throw new UsageError('--once is available once with moments open.');
             once = true;
@@ -55,7 +59,7 @@ function parseArguments(args: string[]): Arguments | undefined {
         }
     }
     if (command === 'open' && !target && !setupPath) throw new UsageError('Choose a target: moments open <journey.checkpoint>, or use --setup <path>. Use moments list to see targets.');
-    return { command, configPath, setupPath, target, once, headless };
+    return { command, configPath, setupPath, outputPath, target, once, headless };
 }
 
 async function readSetupFile(filePath: string): Promise<MomentSetupFile> {
@@ -151,7 +155,9 @@ async function main(): Promise<number> {
     process.on('SIGINT', onSigint);
     process.on('SIGTERM', onSigterm);
     try {
-        const config = await loadConfig(args.configPath);
+        const loaded = await loadConfig(args.configPath);
+        if (args.outputPath !== undefined && loaded.writeReceipt) throw new UsageError('--output needs a config that uses outputDir, not writeReceipt.');
+        const config: MomentsConfig = args.outputPath === undefined ? loaded : { ...loaded, outputDir: resolve(process.cwd(), args.outputPath) } as MomentsConfig;
         if (controller.signal.aborted) return interrupted === 'SIGTERM' ? 143 : 130;
         if (args.command === 'list') {
             for (const journey of config.journeys) {

@@ -120,6 +120,10 @@ class Session implements MomentSession {
         try { return await captureEvidence(root, this.result.runRef, attempt > 1 ? `${base}-${attempt}` : base, this.browser?.page, error); }
         catch { return undefined; }
     }
+    private pageTimeouts(navigation: number | undefined, action: number | undefined) {
+        if (navigation !== undefined) this.browser!.page.setDefaultNavigationTimeout(navigation);
+        if (action !== undefined) this.browser!.page.setDefaultTimeout(action);
+    }
     private async persist() {
         try {
             await this.writer(this.currentResult());
@@ -187,10 +191,13 @@ class Session implements MomentSession {
             await this.persist();
             this.checkActive();
             this.stage = 'browser';
-            this.browser ??= await this.factory({
-                baseURL: this.config.baseURL, headless: this.options.headless ?? !!this.options.once,
-                director: this.config.director === true && !this.options.once
-            }, { read: () => this.view(), command: r => this.command(r) }, () => { void this.end(); });
+            if (!this.browser) {
+                this.browser = await this.factory({
+                    baseURL: this.config.baseURL, headless: this.options.headless ?? !!this.options.once,
+                    director: this.config.director === true && !this.options.once
+                }, { read: () => this.view(), command: r => this.command(r) }, () => { void this.end(); });
+                this.pageTimeouts(this.config.navigationTimeoutMs, this.config.actionTimeoutMs);
+            }
             this.checkActive();
             this.stage = 'create';
             const runRef = this.result.runRef;

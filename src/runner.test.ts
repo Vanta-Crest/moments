@@ -625,3 +625,18 @@ test('evidenceDir false keeps failures without evidence', async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+test('configured page timeouts are applied before the journey is created', async () => {
+    const calls: string[] = [];
+    const page = {
+        setDefaultNavigationTimeout: (ms: number) => { calls.push(`navigation:${ms}`); },
+        setDefaultTimeout: (ms: number) => { calls.push(`action:${ms}`); }
+    } as unknown as Page;
+    const s = await openWithBrowser({
+        baseURL: 'http://localhost:3000', beforeRun: async () => {}, writeReceipt: async () => {},
+        navigationTimeoutMs: 120_000, actionTimeoutMs: 60_000,
+        journeys: [{ id: 'timeouts', title: 'Timeouts', checkpoints: [{ id: 'first', title: 'First' }],
+            create: () => { calls.push('create'); return { enter: async () => {}, verify: async () => {}, reconcile: async () => 'first', cleanup: async () => 'complete' }; } }]
+    }, { target: 'timeouts.first' }, async () => ({ page, close: async () => {} }));
+    assert.deepEqual(calls, ['navigation:120000', 'action:60000', 'create']);
+    await s.end();
+});

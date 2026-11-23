@@ -68,6 +68,10 @@ export type MomentsConfig = {
     director?: boolean;
     /** Failure evidence (message, URL, screenshot). Default `<outputDir>/../evidence`; none with `writeReceipt` unless set; `false` disables. */
     evidenceDir?: string | false;
+    /** Default navigation timeout for the managed page. A journey may still set its own in `create`. */
+    navigationTimeoutMs?: number;
+    /** Default action timeout for the managed page. A journey may still set its own in `create`. */
+    actionTimeoutMs?: number;
     catalogue?: { view: MomentCatalogue; admit(target: string): Promise<void> };
 } & ({
     outputDir?: string;

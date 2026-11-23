@@ -125,6 +125,17 @@ try {
     assert.equal(latest.evidence, join(plain, '.moments', 'evidence', failedReceipt.failures[0].evidence));
     assert.ok((failed.stdout + failed.stderr).includes(`(evidence: ${latest.evidence})`));
     assert.ok((await stat(latest.evidence.replace(/\.txt$/, '.png'))).size > 0, 'A screenshot sits beside the message');
+    // --output keeps parallel runs of one shared config apart; evidence follows it.
+    run(['open', 'task.flow.saved', '--once', '--config', '../failing.ts', '--output', 'lane-a'], child, 1, 'failed at enter');
+    const laneLatest = JSON.parse(await readFile(join(child, 'lane-a', 'latest.json'), 'utf8'));
+    assert.equal(laneLatest.receipt, join(child, 'lane-a', `${laneLatest.runRef}.json`));
+    assert.equal(laneLatest.evidence, join(child, 'evidence', laneLatest.runRef, 'enter-saved.txt'));
+    run(['open', 'task.flow.saved', '--output'], child, 2, '--output');
+    run(['list', '--output', 'lane-a'], child, 2, '--output');
+    await writeFile(join(plain, 'custom-writer.ts'), config.replace('export default {', 'export default {\n  writeReceipt: async () => {},'));
+    run(['open', 'task.flow.draft', '--once', '--config', 'custom-writer.ts', '--output', 'lane-b'], plain, 2, '--output');
+    await writeFile(join(plain, 'timeouts.ts'), config.replace('export default {', 'export default {\n  navigationTimeoutMs: -1,'));
+    run(['list', '--config', 'timeouts.ts'], plain, 2, 'Invalid Moments config');
     process.stdout.write(`${JSON.stringify({ cli, checks, outcome: 'passed', fixture: 'temporary independent cwd; ESM and no-package-json TypeScript config', assertions: 'help, args, discovery, scoped import, target, admission failure, secret-safe errors, director flag validation, config-relative private receipts, complete setup import, cwd-relative setup file, mismatch and malformed input before effects' })}\n`);
 } finally {
     await rm(temporary, { recursive: true, force: true });
