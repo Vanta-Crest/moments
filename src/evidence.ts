@@ -30,7 +30,8 @@ export async function captureEvidence(root: string, runRef: string, stem: string
     let url = 'not available', blank = false;
     try { url = page!.url(); } catch { /* the page may be gone */ }
     try { blank = !(await within(page!.evaluate(() => document.body?.innerText ?? ''), 2_000)).trim(); } catch { /* unknown is not blank */ }
-    const summary = `${firstLine(message)}${blank ? ` ${BLANK_PAGE}` : ''}`;
+    const line = firstLine(message);
+    const summary = blank ? `${line}${/[.!?]$/.test(line) ? '' : '.'} ${BLANK_PAGE}` : line;
     const directory = path.join(root, runRef);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     let screenshot: string;

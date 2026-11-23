@@ -577,7 +577,7 @@ test('a failed stage keeps local evidence and the receipt only a relative path t
         assert.equal(receipt.schemaVersion, 3);
         assert.equal(receipt.failures[0]!.evidence, failure.evidence);
         const text = await readFile(join(root, 'evidence', failure.evidence!), 'utf8');
-        assert.equal(text.split('\n')[0], 'Button "Save" was not found The page was blank: the application server may not be responding.');
+        assert.equal(text.split('\n')[0], 'Button "Save" was not found. The page was blank: the application server may not be responding.');
         assert.match(text, /URL: http:\/\/localhost:3000\/tasks/);
         assert.match(text, /Call log: waiting for getByRole/);
         const png = join(root, 'evidence', failed!.runRef, 'enter-second.png');

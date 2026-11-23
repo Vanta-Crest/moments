@@ -113,7 +113,7 @@ try {
     create: () => ({ enter: async id => { if (id === 'saved') throw new Error('Save button missing\\nCall log: waiting'); }, verify: async () => {},
       reconcile: async () => 'draft', cleanup: async () => 'complete' }) }]
 };`);
-    const failed = run(['open', 'task.flow.saved', '--once', '--config', 'failing.ts'], plain, 1, 'Checkpoint "Saved" failed at enter: Save button missing The page was blank: the application server may not be responding. (evidence: ');
+    const failed = run(['open', 'task.flow.saved', '--once', '--config', 'failing.ts'], plain, 1, 'Checkpoint "Saved" failed at enter: Save button missing. The page was blank: the application server may not be responding. (evidence: ');
     assert.match(failed.stdout + failed.stderr, /passed\s+Draft\n\s+failed\s+Saved\n/);
     assert.doesNotMatch(failed.stdout + failed.stderr, /Done/, 'Checkpoints beyond the target are not listed');
     const latest = JSON.parse(await readFile(join(receiptDir, 'latest.json'), 'utf8'));
