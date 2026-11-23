@@ -88,7 +88,7 @@ try {
       // Keep the original browser failure primary, while still verifying and
       // recording cleanup independently of successful-scenario receipt counts.
       try {
-        const failedReceipts = (await readdir(receipts)).filter(file => file.endsWith('.json'));
+        const failedReceipts = (await readdir(receipts)).filter(file => file.endsWith('.json') && file !== 'latest.json');
         assert.ok(failedReceipts.length > 0, 'Failed scenario retains cleanup receipts');
         for (const file of failedReceipts) {
           const receiptPath = join(receipts, file);
@@ -105,7 +105,7 @@ try {
       throw Error(`${name}: ${interactiveProof.error || 'Interactive scenario did not pass'}`);
     }
     assert.equal(result.code, expectedCode, `${name}: ${result.stderr}`);
-    const files = (await readdir(receipts)).filter(file => file.endsWith('.json'));
+    const files = (await readdir(receipts)).filter(file => file.endsWith('.json') && file !== 'latest.json');
     assert.equal(files.length, scenario === 'controls' ? 2 : 1);
     const collected = [];
     for (const file of files) {
@@ -154,7 +154,21 @@ try {
       assert.ok(receipt.failures.some(item => item.stage === 'verify' && item.checkpointId === 'created'));
       assert.ok(receipt.observations.some(item => item.checkpointId === 'created' && item.status === 'passed' && item.provenance === 'manual'));
     }
-    if (scenario === 'once-failure') assert.ok(receipt.failures.some(item => item.stage === 'verify' && item.checkpointId === 'created'));
+    if (scenario === 'once-failure') {
+      const failure = receipt.failures.find(item => item.stage === 'verify' && item.checkpointId === 'created');
+      assert.ok(failure);
+      const evidenceFile = join(directory, 'evidence', failure.evidence);
+      assert.equal(failure.evidence, `${receipt.runRef}/verify-created.txt`);
+      assert.ok(result.stderr.includes(`Checkpoint "Task created" failed at verify: `) && result.stderr.includes(`(evidence: ${evidenceFile})`), result.stderr);
+      assert.match(result.stdout, /passed\s+Empty draft\n\s+failed\s+Task created\n/);
+      assert.match(await readFile(evidenceFile, 'utf8'), /^URL: http:\/\/127\.0\.0\.1:\d+\/\?run=/m);
+      for (const file of [evidenceFile, evidenceFile.replace(/\.txt$/, '.png')]) {
+        assert.ok((await stat(file)).size > 0); assert.equal((await stat(file)).mode & 0o077, 0, 'Evidence is private');
+      }
+      const latest = JSON.parse(await readFile(join(receipts, 'latest.json'), 'utf8'));
+      assert.deepEqual(latest, { runRef: receipt.runRef, receipt: join(receipts, `${receipt.runRef}.json`), outcome: 'incomplete', evidence: evidenceFile });
+      report.assertions.push('once-failure: CLI names the checkpoint, message and private evidence (URL, screenshot); latest.json points at the run');
+    }
     if (scenario === 'signal') assert.ok(receipt.failures.some(item => item.code === 'interrupted'));
     report.assertions.push(`${name}: closed receipt, private file, owned cleanup, foreign record preserved`);
   }
