@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { stat } from 'node:fs/promises';
 import test from 'node:test';
-import type { Page } from '@playwright/test';
+import { chromium, type Page } from '@playwright/test';
 import { DIRECTOR_ORIGIN, openBrowser } from './browser.js';
 import { PACKAGE_VERSION, type MomentCommandRequest, type MomentsView } from './internal/protocol.js';
 import { openWithBrowser } from './runner.js';
@@ -12,6 +12,8 @@ test.before(async () => {
     await stat(new URL('../dist/director/director.js', import.meta.url)).catch(() => {
         throw Error('dist/director/director.js is missing. Build Moments before running the browser tests.');
     });
+    // Fail fast: a missing browser otherwise waits out Playwright's launch timeout in every test.
+    await stat(chromium.executablePath()).catch(() => { throw Error('Chromium is missing. Run npx playwright install chromium first.'); });
 });
 async function serve(): Promise<{ origin: string; close(): Promise<void> }> {
     const server = createServer((_request, response) => {
