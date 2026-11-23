@@ -100,7 +100,11 @@ try {
     run(['list', '--config', 'broken.ts'], plain, 2, 'Could not load the config');
     await writeFile(join(plain, 'invalid.ts'), 'export default { baseURL: "invalid" };');
     run(['list', '--config', 'invalid.ts'], plain, 2, 'Invalid Moments config');
-    process.stdout.write(`${JSON.stringify({ cli, checks, outcome: 'passed', fixture: 'temporary independent cwd; ESM and no-package-json TypeScript config', assertions: 'help, args, discovery, scoped import, target, admission failure, secret-safe errors, config-relative private receipts, complete setup import, cwd-relative setup file, mismatch and malformed input before effects' })}\n`);
+    await writeFile(join(plain, 'director.ts'), config.replace('export default {', "export default {\n  director: 'yes',"));
+    run(['list', '--config', 'director.ts'], plain, 2, 'Invalid Moments config');
+    await writeFile(join(plain, 'director-on.ts'), config.replace('export default {', 'export default {\n  director: true,'));
+    run(['list', '--config', 'director-on.ts'], plain, 0, 'task.flow.draft');
+    process.stdout.write(`${JSON.stringify({ cli, checks, outcome: 'passed', fixture: 'temporary independent cwd; ESM and no-package-json TypeScript config', assertions: 'help, args, discovery, scoped import, target, admission failure, secret-safe errors, director flag validation, config-relative private receipts, complete setup import, cwd-relative setup file, mismatch and malformed input before effects' })}\n`);
 } finally {
     await rm(temporary, { recursive: true, force: true });
 }

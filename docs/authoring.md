@@ -231,6 +231,8 @@ replaying actions. Import the optional `MomentsPanel` and `/styles.css` for nati
 The browser bridge is available only in the runner-owned page's main frame at
 the configured origin. Other pages, iframes and origins cannot use it to read or
 command the run. This is a local development control, not a production feature.
+With `director: true`, no application page has the bridge; only the runner-owned
+Moments Director window, on its own reserved origin, can read or command the run.
 
 The root entry is for Node; `/react` and `/protocol` are browser-safe. React is an
 optional peer and is unnecessary for the Node runner. The `/protocol` export supports existing browser-safe consumers.

@@ -10,10 +10,14 @@ export type OwnedBrowser = {
     focus?(): Promise<void>;
     close(): Promise<void>;
 };
-export type BrowserFactory = (baseURL: string, headless: boolean, controls: {
-    read(): MomentsView;
-    command(r: MomentCommandRequest): MomentCommandReply;
-}, onClose: () => void) => Promise<OwnedBrowser>;
+export type MomentControls = { read(): MomentsView; command(r: MomentCommandRequest): MomentCommandReply };
+export type BrowserOptions = {
+    baseURL: string;
+    headless: boolean;
+    /** Run controls live only in a separate Director window; app pages get no bridge. */
+    director: boolean;
+};
+export type BrowserFactory = (options: BrowserOptions, controls: MomentControls, onClose: () => void) => Promise<OwnedBrowser>;
 export class MomentOpenError extends Error {
     constructor(readonly result: MomentResult) { super('Moment initialization failed; inspect safe result'); this.name = 'MomentOpenError'; }
 }
@@ -173,9 +177,10 @@ class Session implements MomentSession {
             await this.persist();
             this.checkActive();
             this.stage = 'browser';
-            this.browser ??= await this.factory(this.config.baseURL, this.options.headless ?? !!this.options.once, {
-                read: () => this.view(), command: r => this.command(r)
-            }, () => { void this.end(); });
+            this.browser ??= await this.factory({
+                baseURL: this.config.baseURL, headless: this.options.headless ?? !!this.options.once,
+                director: this.config.director === true && !this.options.once
+            }, { read: () => this.view(), command: r => this.command(r) }, () => { void this.end(); });
             this.checkActive();
             this.stage = 'create';
             const runRef = this.result.runRef;

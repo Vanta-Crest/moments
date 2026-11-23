@@ -1,7 +1,7 @@
 # Roadmap
 
 The preview provides ordered checkpoints, real actions and verification, manual
-adoption, guarded controls, cleanup, CLI, optional React panel and safe receipts.
+adoption, guarded controls, cleanup, CLI, optional React panel, optional Director window and safe receipts.
 The independent task-app example proves the ordinary developer path.
 
 Next, observe outside developers following the guide and authoring a journey.

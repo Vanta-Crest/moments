@@ -10,6 +10,11 @@ moments --help
 Default config is exactly `./moments.config.ts`; no parent search. It exports a
 `MomentsConfig` (optionally wrapped in `defineConfig`): `baseURL`, `journeys`,
 required async `beforeRun`, and either `outputDir` or awaited `writeReceipt`.
+Optional `director: true` opens interactive runs (not `--once`) with a separate
+Moments Director window that is the sole holder of the browser bridge: application
+pages on every origin see no `window.moments`. Closing the Director ends the
+session like closing the app window (cleanup, receipt, both windows close).
+Restart and backward open close and reopen both windows.
 CLI output defaults to `.moments/runs` relative to the config file. Direct API
 paths follow the caller's cwd. Config modules execute trusted local code.
 Setup file paths resolve from the caller's cwd. Only `open` accepts `--setup`,
@@ -47,7 +52,7 @@ Only `restart` also accepts an optional complete `setup`. Invalid input returns
 `{ accepted: false, reason: "invalid-setup", issues }` without disturbing the run.
 Restart/backward open retains active values when no new setup is supplied.
 
-`/react` exports `MomentsPanel({defaultCollapsed?})`, `useMomentsSession()` and
+`/react` exports `MomentsPanel({defaultCollapsed?, standalone?})`, `useMomentsSession()` and
 browser-safe protocol types. Load `/styles.css` explicitly. The hook returns
 `connection`, `sending`, `message`, and `submit(intent)`; intent includes command,
 runRef and the observed opening consequence for an open command. `/protocol`

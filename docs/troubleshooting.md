@@ -7,6 +7,8 @@
 | Chromium missing | Run `npx playwright install chromium` with the runner's Playwright installation. Linux may need `--with-deps`. |
 | App unavailable | Start the app and check baseURL; retain the admission probe. |
 | Panel unavailable | Mount it in the development app, load CSS and use the managed browser at the configured origin. |
+| Director closed and the run ended | By design: closing the Moments Director ends the session with cleanup and a receipt, like closing the app window. |
+| Embedded panel says not connected with `director: true` | Expected: the Director is the only control surface. Remove the embedded panel or ignore it. |
 | Version mismatch | Use the same Moments version in runner and app; rebuild and reconnect. |
 | Disconnected | The last view is stale; review state after reconnection. Actions are never replayed. |
 | Destination verification fails | Restore state and Check; it retries verification without repeating entry. |

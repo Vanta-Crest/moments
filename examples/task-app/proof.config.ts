@@ -17,6 +17,14 @@ type ProofRun = {
   stopTrace(): Promise<void>;
 };
 let latestRun: ProofRun | undefined;
+/** Where the run controls live: the Moments Director window in the director scenario, otherwise the app page. */
+function controlPage(owner: ProofRun) {
+  if (scenario !== 'director') return owner.context.page;
+  const director = owner.context.page.context().browser()!.contexts().flatMap(context => context.pages())
+    .find(page => page.url().startsWith('https://director.moments.invalid'));
+  assert.ok(director, 'The Moments Director window is open');
+  return director;
+}
 type ProofWindow = typeof window & { proofBridge?: NonNullable<typeof window.moments>; proofCommandCount?: number;
   proofRevisionRace?: { checked: boolean; before?: number; after?: number; submitted: number } };
 await mkdir(evidence, { recursive: true });
@@ -51,12 +59,12 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
   }
   async function settled(activity = 'ready', checkpoint?: string, owner = proofRun) {
     await expect.poll(async () => {
-      const view = await owner.context.page.evaluate(() => window.moments?.read());
+      const view = await controlPage(owner).evaluate(() => window.moments?.read());
       return view?.activity === activity && (!checkpoint || view.lastVerified?.checkpointId === checkpoint);
     }, { timeout: 15000 }).toBe(true);
   }
   async function panelButton(name: string, owner = proofRun) {
-    const button = owner.context.page.getByRole('complementary', { name: 'Moments', exact: true }).getByRole('button', { name, exact: true });
+    const button = controlPage(owner).getByRole('complementary', { name: 'Moments', exact: true }).getByRole('button', { name, exact: true });
     await button.waitFor();
     await button.click();
   }
@@ -68,9 +76,11 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
     try {
       await proofRun.startTrace();
       await settled('ready', 'draft');
-      await panelButton('Collapse');
-      await panelButton('Show Moments');
-      assertions.push('Connected panel collapses and reopens through native controls');
+      if (scenario !== 'director') {
+        await panelButton('Collapse');
+        await panelButton('Show Moments');
+        assertions.push('Connected panel collapses and reopens through native controls');
+      }
       if (scenario === 'manual') {
         await page.getByLabel('Task title', { exact: true }).fill(taskTitle(runRef));
         await page.getByRole('button', { name: 'Create task', exact: true }).click();
@@ -269,6 +279,30 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
         assert.equal(replacementState.length, 1); assert.equal(replacementState[0].completed, false);
         assert.equal(replacementState[0].runRef, replacement);
         assertions.push('A newly reviewed confirmed Restart cleans predecessor tasks and creates one independently verified task owned by the new run');
+      } else if (scenario === 'director') {
+        const director = controlPage(proofRun);
+        assert.equal(await page.evaluate(() => typeof window.moments), 'undefined');
+        const embedded = page.getByRole('complementary', { name: 'Moments', exact: true });
+        await embedded.getByRole('button', { name: 'Show Moments', exact: true }).click();
+        await embedded.getByText(/^No Moments session is connected/).waitFor();
+        assertions.push('With the Director on, the app page has no bridge and its embedded panel stays disconnected');
+        await page.getByLabel('Task title', { exact: true }).fill(taskTitle(runRef));
+        await page.getByRole('button', { name: 'Create task', exact: true }).click();
+        await page.getByRole('button', { name: 'Complete task', exact: true }).waitFor();
+        await panelButton('Continue');
+        await settled('ready', 'created');
+        assert.equal((await state()).length, 1);
+        assertions.push('Director Continue adopts manual creation without submitting a duplicate');
+        await page.goto('data:text/html,<title>Elsewhere</title>');
+        await settled('ready', 'created');
+        await expect(director.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
+        assertions.push('The Director keeps reading and its controls stay enabled while the app page is on another origin');
+        await page.goto(`${baseURL}/?run=${encodeURIComponent(runRef)}`);
+        await panelButton('Continue');
+        await settled('ready', 'completed');
+        const tasks = await state();
+        assert.equal(tasks.length, 1); assert.equal(tasks[0].completed, true);
+        assertions.push('Back on the app, Director Continue completes the same task, verified by an independent backend read');
       } else if (scenario === 'signal') {
         await panelButton('Continue'); await settled('ready', 'created');
         assert.equal((await state()).length, 1);
@@ -285,7 +319,7 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
       await writeFile(join(evidence, 'scenario.json'), JSON.stringify({ runRef, scenario, assertions, passed: false, error: String(error) }, null, 2));
       const owner = latestRun ?? activeRun;
       await owner.stopTrace().catch(() => {});
-      const ownedPage = owner.context.page;
+      const ownedPage = controlPage(owner);
       const view = await ownedPage.evaluate(() => window.moments!.read()).catch(() => undefined);
       if (view?.runRef) await ownedPage.evaluate(view => window.moments!.command({ runRef: view.runRef!, revision: view.revision, command: { kind: 'end' } }), view).catch(() => {});
     }
@@ -294,7 +328,7 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
     async enter(checkpoint: 'draft' | 'created' | 'completed') {
       if (scenario === 'controls') await proofRun.startTrace();
       await driver.enter(checkpoint);
-      if (!launched && checkpoint === 'draft' && ['manual', 'retry', 'signal', 'controls'].includes(scenario)
+      if (!launched && checkpoint === 'draft' && ['manual', 'retry', 'signal', 'controls', 'director'].includes(scenario)
         && (scenario !== 'controls' || !controlsLaunched)) {
         if (scenario === 'controls') controlsLaunched = true;
         launched = true; setTimeout(() => { void exercise(); }, 0);
@@ -312,4 +346,4 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
     }
   };
 } };
-export default { ...config, journeys: [journey] };
+export default { ...config, journeys: [journey], ...(scenario === 'director' ? { director: true } : {}) };

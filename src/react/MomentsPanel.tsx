@@ -6,15 +6,17 @@ import { useMomentsSession, type MomentIntent } from "./useMomentsSession.js";
 import { useMomentSetup, type SetupReview } from "./useMomentSetup.js";
 import { RunValues } from "./RunValues.js";
 
-export type MomentsPanelProps = { defaultCollapsed?: boolean };
+export type MomentsPanelProps = { defaultCollapsed?: boolean;
+  /** Fills its own window (the Moments Director): always expanded, no collapse controls. */
+  standalone?: boolean };
 
 /** Optional native controls for a Moments runner. Import moments.css separately. */
-export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
+export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps = {}) {
   const { connection, sending, message, submit, dismissReviewFeedback } = useMomentsSession();
   const view = "view" in connection ? connection.view : undefined;
   const draft = useMomentSetup(view);
   const connected = connection.kind === "connected";
-  const [collapsed, setCollapsed] = useState(defaultCollapsed ?? true);
+  const [collapsed, setCollapsed] = useState(standalone ? false : defaultCollapsed ?? true);
   const [mode, setMode] = useState<"normal" | "values" | "review">("normal");
   const [setupReview, setSetupReview] = useState<Extract<SetupReview, { kind: "ready" }>>();
   const root = useRef<HTMLElement>(null), valuesHeading = useRef<HTMLHeadingElement>(null);
@@ -48,7 +50,7 @@ export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
   const canPrepare = allowed(view?.controls.restart) && !playing && !!draft.setup;
   const displayKey = view ? `moments-package-display:${view.sessionId}` : undefined;
   useEffect(() => {
-    if (!displayKey) return;
+    if (standalone || !displayKey) return;
     let initial = defaultCollapsed ?? window.matchMedia("(max-width: 480px)").matches;
     try { const saved = sessionStorage.getItem(displayKey); if (saved === "collapsed" || saved === "expanded") initial = saved === "collapsed"; } catch { /* optional preference */ }
     setCollapsed(initial);
@@ -71,6 +73,7 @@ export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
     setConfirmation(undefined);
   }, [view?.runRef, view?.revision, connected, selectedId]);
   useEffect(() => {
+    if (standalone) return;
     function restore(event: KeyboardEvent) {
       if (event.altKey && event.shiftKey && event.code === "KeyM"
         && !(event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]"))) {
@@ -130,16 +133,16 @@ export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
     : view?.destinationId ? `Working on ${view.checkpoints.find(point => point.id === view.destinationId)?.title ?? view.destinationId}…`
     : view?.activity.replaceAll("-", " ");
 
-  return <aside className="moments-package" aria-label="Moments" ref={root} onKeyDown={event => {
+  return <aside className={standalone ? "moments-package moments-package--standalone" : "moments-package"} aria-label="Moments" ref={root} onKeyDown={event => {
     if (event.key === "Escape" && !collapsed) {
       event.preventDefault(); event.stopPropagation();
-      if (mode !== "normal") back(); else if (confirmed) dismissConfirmation(); else collapse();
+      if (mode !== "normal") back(); else if (confirmed) dismissConfirmation(); else if (!standalone) collapse();
     }
   }}>
     {!collapsed && <section id={panelId} className="moments-package__panel" aria-label="Moment controls">
       <header className="moments-package__row">
         <strong>{view?.journey.title ?? "Moments"}</strong>
-        <button type="button" ref={collapseButton} aria-expanded={true} aria-controls={panelId} onClick={collapse}>Collapse</button>
+        {!standalone && <button type="button" ref={collapseButton} aria-expanded={true} aria-controls={panelId} onClick={collapse}>Collapse</button>}
       </header>
       {mode !== "normal" && view ? <RunValues draft={draft} view={view} heading={valuesHeading} review={mode === "review" ? setupReview : undefined}
         canPrepare={canPrepare} canPause={allowed(view.controls.pause)} onReview={reviewValues} onCommit={() => void prepare()} onBack={back} onPause={() => send({ kind: "pause" })} />
@@ -165,7 +168,7 @@ export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
           <button type="button" disabled={!allowed(view.controls.end)} onClick={() => send({ kind: "end" })}>End session</button>
         </div>
         {next && !playing && <p>Next: {next.title}</p>}
-        <details>
+        <details open={standalone}>
           <summary>Checkpoint and playback</summary>
           <label htmlFor={`${panelId}-checkpoint`}>Checkpoint</label>
           <select id={`${panelId}-checkpoint`} value={selectedId} onChange={event => {
@@ -200,7 +203,7 @@ export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
             <button type="button" ref={cancelButton} onClick={draft.changed ? openValues : dismissConfirmation}>{draft.changed ? "Back to values" : "Keep exploring"}</button>
           </div>
         </div>}
-        <details>
+        <details open={standalone}>
           <summary>Session details</summary>
           <dl>
             <dt>Run reference</dt><dd><code>{view.runRef ?? "Preparing"}</code></dd>
@@ -214,7 +217,7 @@ export function MomentsPanel({ defaultCollapsed }: MomentsPanelProps = {}) {
             {draft.download !== "idle" && <p role={draft.download === "failed" ? "alert" : "status"}>{draft.download === "failed" ? "Download could not be started. Try again." : "Download started."}</p>}</>}
         </details>
       </>}
-      <p className="moments-package__hint">Escape collapses the panel. Alt + Shift + M opens it.</p>
+      {!standalone && <p className="moments-package__hint">Escape collapses the panel. Alt + Shift + M opens it.</p>}
       </div>}
       {sending && <p role="status">{mode === "review" ? "Starting a new run…" : "Sending action…"}</p>}
       {message && <p role="alert">{message}</p>}

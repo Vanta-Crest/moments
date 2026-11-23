@@ -62,6 +62,8 @@ export type MomentsConfig = {
     baseURL: string;
     journeys: readonly JourneyDefinition[];
     beforeRun(journeyId: string): Promise<void>;
+    /** Open run controls in a separate Moments Director window. Interactive runs only. */
+    director?: boolean;
     catalogue?: { view: MomentCatalogue; admit(target: string): Promise<void> };
 } & ({
     outputDir?: string;

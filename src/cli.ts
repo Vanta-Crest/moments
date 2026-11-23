@@ -16,7 +16,7 @@ const help = `Usage:
 Config defaults to moments.config.ts in the current directory.
 Relative outputDir paths resolve beside the config (default: .moments/runs).
 Setup paths resolve from the current directory; a positional target must match the file.
-Open uses a headed browser; close it or use the panel's End control to finish.
+Open uses a headed browser; use End (panel or Moments Director) or close a Moments window to finish.
 --once verifies the target in a headless browser, cleans up, and exits.
 --headless runs an interactive session without a visible browser.
 Exit status: 0 completed, 1 incomplete, 2 invalid arguments/config,
@@ -130,7 +130,9 @@ async function main(): Promise<number> {
             const session = await openMoment(config, {
                 target: target!, ...(file ? { setup: file.setup } : {}), once: args.once, headless: args.once || args.headless, signal: controller.signal
             });
-            if (!args.once && !controller.signal.aborted) process.stdout.write('Moments: ready. Explore the browser, then use End or close the browser to finish.\n');
+            if (!args.once && !controller.signal.aborted) process.stdout.write(config.director
+                ? 'Moments: ready. Use the Moments Director window to move through the journey; End or closing either window finishes.\n'
+                : 'Moments: ready. Explore the browser, then use End or close the browser to finish.\n');
             const result = await session.done;
             reportResult(result, config);
             return interrupted ? (interrupted === 'SIGTERM' ? 143 : 130) : result.outcome === 'incomplete' ? 1 : 0;

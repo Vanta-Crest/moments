@@ -86,3 +86,8 @@
   .moments-package__hint { color: #b5becb; }
   .moments-package__error { color: #ffa9a9; }
 }
+
+.moments-director { margin: 0; padding: .75rem; color-scheme: light dark; background: Canvas; }
+.moments-package--standalone { width: 100%; }
+.moments-package--standalone .moments-package__panel { max-height: calc(100dvh - 1.5rem); box-shadow: none; }
+.moments-package--standalone .moments-package__checkpoint { font-size: 1.15rem; }

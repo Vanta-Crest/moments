@@ -82,7 +82,7 @@ try {
       for (const checkpoint of ['draft', 'created', 'completed']) assert.match(result.stdout, new RegExp(`task\\.${checkpoint}`));
       return;
     }
-    const interactiveProof = ['manual', 'retry', 'controls'].includes(scenario)
+    const interactiveProof = ['manual', 'retry', 'controls', 'director'].includes(scenario)
       ? JSON.parse(await readFile(join(directory, 'scenario.json'), 'utf8')) : undefined;
     if (interactiveProof && interactiveProof.passed !== true) {
       // Keep the original browser failure primary, while still verifying and
@@ -132,7 +132,7 @@ try {
       report.assertions.push(`${name}: requested journey/target and ordered native checkpoint verification retained in receipt`);
     }
     assert.deepEqual(await api('/api/tasks?runRef=foreign-proof-record'), [foreign]);
-    if (scenario === 'manual' || scenario === 'retry' || scenario === 'controls') {
+    if (scenario === 'manual' || scenario === 'retry' || scenario === 'controls' || scenario === 'director') {
       const proof = interactiveProof; assert.equal(proof.passed, true, proof.error);
       report.assertions.push(...proof.assertions);
       if (scenario === 'controls') {
@@ -165,6 +165,7 @@ try {
   // Failure history deliberately remains incomplete even after recovery.
   await run('retry', ['open', 'task.draft', '--headless'], 'retry', 1);
   await run('controls', ['open', 'task.draft', '--headless'], 'controls');
+  await run('director', ['open', 'task.draft', '--headless'], 'director');
   await run('signal', ['open', 'task.draft', '--headless'], 'signal', 143);
   scenariosPassed = true;
 } catch (error) {

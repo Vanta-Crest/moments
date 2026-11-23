@@ -29,8 +29,9 @@ function validateConfig(value: unknown): asserts value is MomentsConfig {
         if (config.outputDir !== undefined && (typeof config.outputDir !== 'string' || !config.outputDir.trim())) throw Error();
         if (config.writeReceipt !== undefined && typeof config.writeReceipt !== 'function') throw Error();
         if (config.outputDir !== undefined && config.writeReceipt !== undefined) throw Error();
+        if (config.director !== undefined && typeof config.director !== 'boolean') throw Error();
     } catch {
-        throw new ConfigError('Invalid Moments config. Check baseURL, journeys, beforeRun, and either outputDir or writeReceipt.');
+        throw new ConfigError('Invalid Moments config. Check baseURL, journeys, beforeRun, director, and either outputDir or writeReceipt.');
     }
 }
 

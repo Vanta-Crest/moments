@@ -82,6 +82,12 @@ panel connects only in the runner-owned page at the configured origin.
 The panel sits in normal document flow. Give it its own area beside or below your
 application so it cannot cover controls used by the journey.
 
+If the journey leaves one origin (single sign-on, a mailbox, another portal), or the
+application must not embed test controls, set `director: true` in the config. An
+interactive run then opens a separate Moments Director window with the same controls
+and keeps working on every origin. Application pages get no Moments bridge at all,
+so remove an embedded panel or ignore its "not connected" state.
+
 Read the [authoring guide](docs/authoring.md), [reference](docs/reference.md),
 [troubleshooting](docs/troubleshooting.md), and [roadmap](ROADMAP.md).
 

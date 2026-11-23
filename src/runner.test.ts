@@ -33,7 +33,7 @@ test('owned page closing during startup prevents driver acquisition', async () =
         baseURL: 'http://localhost:3000', beforeRun: async () => {},
         journeys: [{ id: 'closed', title: 'Closed', checkpoints: [{ id: 'first', title: 'First' }], create: () => { drivers++; throw Error('must not create'); } }],
         writeReceipt: async () => {}
-    }, { target: 'closed.first' }, async (_baseURL, _headless, _controls, onClose) => {
+    }, { target: 'closed.first' }, async (_options, _controls, onClose) => {
         onClose();
         return { page: {} as Page, close: async () => { closes++; } };
     });
