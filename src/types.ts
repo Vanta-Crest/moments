@@ -46,7 +46,8 @@ export type MomentResult = {
     observations: readonly {
         checkpointId: string;
         at: string;
-        provenance: 'native' | 'manual';
+        /** `existing`: verified on resume without this run entering it. */
+        provenance: 'native' | 'manual' | 'existing';
         status: 'passed' | 'skipped' | 'failed';
     }[];
     cleanup: 'not-attempted' | CleanupOutcome | 'incomplete';
@@ -72,6 +73,8 @@ export type MomentsConfig = {
     navigationTimeoutMs?: number;
     /** Default action timeout for the managed page. A journey may still set its own in `create`. */
     actionTimeoutMs?: number;
+    /** Page timeout while `resume` probes a checkpoint with verify (default 3000). */
+    resumeProbeTimeoutMs?: number;
     catalogue?: { view: MomentCatalogue; admit(target: string): Promise<void> };
 } & ({
     outputDir?: string;
@@ -85,6 +88,8 @@ export type OpenMomentOptions = {
     setup?: MomentSetup;
     headless?: boolean;
     once?: boolean;
+    /** Verify each checkpoint before entering it; a passing one is recorded `existing` and not entered. */
+    resume?: boolean;
     signal?: AbortSignal;
 };
 export type MomentSession = {

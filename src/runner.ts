@@ -462,7 +462,7 @@ class Session implements MomentSession {
             throw Error('Unknown checkpoint');
         return n;
     }
-    private async record(index: number, provenance: 'native' | 'manual', status: 'passed' | 'skipped') { this.result = {
+    private async record(index: number, provenance: MomentResult['observations'][number]['provenance'], status: 'passed' | 'skipped') { this.result = {
         ...this.result, observations: [...this.result.observations, {
                 checkpointId: this.definition.checkpoints[index]!.id, at: new Date().toISOString(), provenance, status
             }]
@@ -479,10 +479,30 @@ class Session implements MomentSession {
             await this.record(end, 'manual', 'passed');
             return;
         }
+        // Opening a run with resume: probe in order until the first checkpoint that is not already there.
+        let probing = !!this.options.resume && !reconcile;
         for (let i = this.position + 1; i <= end; i++) {
             if (this.ending) return;
+            if (probing && await this.probe(i)) continue;
+            probing = false;
             await this.enterAndVerify(i);
         }
+    }
+    /** A failed probe is not a failure: the checkpoint is entered as usual. The probe's page timeouts are bounded. */
+    private async probe(index: number): Promise<boolean> {
+        this.checkActive();
+        this.destination = this.definition.checkpoints[index]!.id;
+        this.revision++;
+        this.stage = 'verify';
+        const probe = this.config.resumeProbeTimeoutMs ?? 3_000, { navigationTimeoutMs, actionTimeoutMs } = this.config;
+        this.pageTimeouts(probe, probe);
+        try { await this.driver!.verify(this.destination); }
+        catch { return false; }
+        // Playwright has no timeout getter: restore the configured values, else its 30 s library default.
+        finally { this.pageTimeouts(navigationTimeoutMs ?? actionTimeoutMs ?? 30_000, actionTimeoutMs ?? 30_000); }
+        await this.record(index, 'existing', 'passed');
+        this.position = index;
+        return true;
     }
     private async reconcilePosition(verifyHeld = false) {
         this.stage = 'reconcile';

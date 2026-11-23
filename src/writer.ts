@@ -21,7 +21,7 @@ export function validateResult(r: MomentResult): void {
         parseMomentSetup(request.setup);
     }
     for (const o of r.observations)
-        if (!exact(o, ['checkpointId', 'at', 'provenance', 'status']) || !id(o.checkpointId) || !time(o.at) || !['native', 'manual'].includes(o.provenance) || !['passed', 'skipped', 'failed'].includes(o.status))
+        if (!exact(o, ['checkpointId', 'at', 'provenance', 'status']) || !id(o.checkpointId) || !time(o.at) || !['native', 'manual', 'existing'].includes(o.provenance) || !['passed', 'skipped', 'failed'].includes(o.status))
             throw Error('Invalid Moments observation');
     for (const f of r.failures)
         if (!exact(f, ['stage', 'code', 'checkpointId', 'evidence', 'at']) || !stages.includes(f.stage) || !['operation-failed', 'persistence-failed', 'interrupted'].includes(f.code) || !time(f.at) || (f.checkpointId !== undefined && !id(f.checkpointId))

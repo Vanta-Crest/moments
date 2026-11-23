@@ -640,3 +640,40 @@ test('configured page timeouts are applied before the journey is created', async
     assert.deepEqual(calls, ['navigation:120000', 'action:60000', 'create']);
     await s.end();
 });
+function resumable(existing: Set<string>) {
+    const calls: string[] = [];
+    const page = {
+        setDefaultNavigationTimeout: (ms: number) => { calls.push(`navigation:${ms}`); },
+        setDefaultTimeout: (ms: number) => { calls.push(`action:${ms}`); }
+    } as unknown as Page;
+    const journey = { id: 'resume', title: 'Resume', checkpoints: ['a', 'b', 'c', 'd'].map(id => ({ id, title: id.toUpperCase() })),
+        create: (): JourneyDriver => ({
+            enter: async id => { calls.push(`enter:${id}`); existing.add(id); },
+            verify: async id => { calls.push(`verify:${id}`); if (!existing.has(id)) throw Error(`${id} is not there`); },
+            reconcile: async () => 'a', cleanup: async () => 'complete'
+        }) };
+    return { calls, page, journey };
+}
+test('resume records existing prerequisites without entering them and enters from the first that fails', async () => {
+    const { calls, page, journey } = resumable(new Set(['a', 'b', 'd']));
+    const s = await openWithBrowser({
+        baseURL: 'http://localhost:3000', beforeRun: async () => {}, writeReceipt: async () => {},
+        navigationTimeoutMs: 120_000, journeys: [journey]
+    }, { target: 'resume.d', resume: true }, async () => ({ page, close: async () => {} }));
+    const probe = (id: string) => ['navigation:3000', 'action:3000', `verify:${id}`, 'navigation:120000', 'action:30000'];
+    assert.deepEqual(calls, ['navigation:120000', ...probe('a'), ...probe('b'), ...probe('c'), 'enter:c', 'verify:c', 'enter:d', 'verify:d'],
+        'Probing stops at the first absent checkpoint; later ones are entered even if a stale verify would pass');
+    const result = await s.end();
+    assert.deepEqual(result.observations.map(o => `${o.checkpointId}:${o.provenance}:${o.status}`), ['a:existing:passed', 'b:existing:passed', 'c:native:passed', 'd:native:passed']);
+    assert.deepEqual(result.failures, []);
+    assert.equal(result.outcome, 'complete');
+});
+test('resume probes the target too, with the configured probe timeout', async () => {
+    const { calls, page, journey } = resumable(new Set(['a', 'b']));
+    const s = await openWithBrowser({
+        baseURL: 'http://localhost:3000', beforeRun: async () => {}, writeReceipt: async () => {},
+        resumeProbeTimeoutMs: 500, actionTimeoutMs: 60_000, journeys: [journey]
+    }, { target: 'resume.b', resume: true }, async () => ({ page, close: async () => {} }));
+    assert.deepEqual(calls.filter(call => !call.startsWith('verify:')), ['action:60000', 'navigation:500', 'action:500', 'navigation:60000', 'action:60000', 'navigation:500', 'action:500', 'navigation:60000', 'action:60000']);
+    assert.deepEqual((await s.end()).observations.map(o => o.provenance), ['existing', 'existing']);
+});

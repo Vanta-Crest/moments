@@ -136,6 +136,10 @@ try {
     run(['open', 'task.flow.draft', '--once', '--config', 'custom-writer.ts', '--output', 'lane-b'], plain, 2, '--output');
     await writeFile(join(plain, 'timeouts.ts'), config.replace('export default {', 'export default {\n  navigationTimeoutMs: -1,'));
     run(['list', '--config', 'timeouts.ts'], plain, 2, 'Invalid Moments config');
+    // --resume: this journey's verify always passes, so nothing is entered (its enter would fail at Saved).
+    const resumed = run(['open', 'task.flow.saved', '--once', '--resume', '--config', '../failing.ts', '--output', 'lane-c'], child, 0, 'Moments: complete');
+    assert.match(resumed.stdout, /passed\s+Draft \(existing\)\n\s+passed\s+Saved \(existing\)\n/);
+    run(['list', '--resume'], child, 2, '--resume');
     process.stdout.write(`${JSON.stringify({ cli, checks, outcome: 'passed', fixture: 'temporary independent cwd; ESM and no-package-json TypeScript config', assertions: 'help, args, discovery, scoped import, target, admission failure, secret-safe errors, director flag validation, config-relative private receipts, complete setup import, cwd-relative setup file, mismatch and malformed input before effects' })}\n`);
 } finally {
     await rm(temporary, { recursive: true, force: true });
