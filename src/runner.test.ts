@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { openWithBrowser } from './runner.js';
 import type { MomentResult, MomentSession, JourneyDriver } from './types.js';
@@ -539,4 +542,86 @@ test('replacement browser failure has a new run identity with persisted setup an
     assert.equal(result.target, 'second');
     assert.equal(f.created.length, 1);
     assert.equal(f.receipts.some(r => r.runRef === result.runRef && r.activity === 'preparing' && r.setup?.values.name === 'Candidate'), true);
+});
+
+function evidencePage(options: { url?: string; body?: string } = {}): Page {
+    return {
+        url: () => options.url ?? 'http://localhost:3000/tasks',
+        screenshot: async () => Buffer.from('png'),
+        evaluate: async () => options.body ?? 'Tasks'
+    } as unknown as Page;
+}
+function failingJourney(fail: { enter?: string; verify?: () => boolean }) {
+    let current = 'first';
+    return {
+        id: 'evidence', title: 'Evidence', checkpoints: ['first', 'second'].map(id => ({ id, title: id === 'first' ? 'First' : 'Second' })),
+        create: (): JourneyDriver => ({
+            enter: async id => { if (fail.enter === id) throw Error('Button "Save" was not found\n  Call log: waiting for getByRole("button")'); current = id; },
+            verify: async id => { if (id === 'second' && fail.verify?.()) throw Error('Task was not saved'); },
+            reconcile: async () => current, cleanup: async () => 'complete'
+        })
+    };
+}
+test('a failed stage keeps local evidence and the receipt only a relative path to it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moments-evidence-'));
+    try {
+        let failed: MomentResult | undefined;
+        await assert.rejects(openWithBrowser({
+            baseURL: 'http://localhost:3000', beforeRun: async () => {}, outputDir: join(root, 'runs'),
+            journeys: [failingJourney({ enter: 'second' })]
+        }, { target: 'evidence.second' }, async () => ({ page: evidencePage({ body: ' \n' }), close: async () => {} })),
+        (error: unknown) => { failed = (error as { result: MomentResult }).result; return true; });
+        const failure = failed!.failures[0]!;
+        assert.equal(failure.evidence, `${failed!.runRef}/enter-second.txt`);
+        const receipt = JSON.parse(await readFile(join(root, 'runs', `${failed!.runRef}.json`), 'utf8')) as MomentResult;
+        assert.equal(receipt.schemaVersion, 3);
+        assert.equal(receipt.failures[0]!.evidence, failure.evidence);
+        const text = await readFile(join(root, 'evidence', failure.evidence!), 'utf8');
+        assert.equal(text.split('\n')[0], 'Button "Save" was not found The page was blank: the application server may not be responding.');
+        assert.match(text, /URL: http:\/\/localhost:3000\/tasks/);
+        assert.match(text, /Call log: waiting for getByRole/);
+        const png = join(root, 'evidence', failed!.runRef, 'enter-second.png');
+        assert.equal(await readFile(png, 'utf8'), 'png');
+        assert.equal((await stat(png)).mode & 0o077, 0);
+        assert.equal((await stat(join(root, 'evidence', failure.evidence!))).mode & 0o077, 0);
+        assert.equal((await stat(join(root, 'evidence', failed!.runRef))).mode & 0o077, 0);
+        assert.ok(!JSON.stringify(receipt).includes('Save'), 'The receipt carries no thrown message');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+test('a held failure shows its one-line detail and evidence; repeats never overwrite earlier evidence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moments-evidence-'));
+    try {
+        const s = await openWithBrowser({
+            baseURL: 'http://localhost:3000', beforeRun: async () => {}, writeReceipt: async () => {}, evidenceDir: root,
+            journeys: [failingJourney({ verify: () => true })]
+        }, { target: 'evidence.first' }, async () => ({ page: evidencePage(), close: async () => {} }));
+        const send = (kind: 'continue' | 'check') => { const v = s.view(); return s.command({ runRef: v.runRef!, revision: v.revision, command: { kind } }); };
+        send('continue');
+        await s.settled();
+        const runRef = s.currentResult().runRef;
+        assert.deepEqual(s.view().failure, { stage: 'verify', checkpointId: 'second', detail: 'Task was not saved', evidence: join(root, runRef, 'verify-second.txt') });
+        assert.equal(send('check').accepted, true);
+        await s.settled();
+        assert.deepEqual(s.currentResult().failures.map(failure => failure.evidence), [`${runRef}/verify-second.txt`, `${runRef}/verify-second-2.txt`]);
+        await s.end();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+test('evidenceDir false keeps failures without evidence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moments-evidence-'));
+    try {
+        let failed: MomentResult | undefined;
+        await assert.rejects(openWithBrowser({
+            baseURL: 'http://localhost:3000', beforeRun: async () => {}, outputDir: join(root, 'runs'), evidenceDir: false,
+            journeys: [failingJourney({ enter: 'second' })]
+        }, { target: 'evidence.second' }, async () => ({ page: evidencePage(), close: async () => {} })),
+        (error: unknown) => { failed = (error as { result: MomentResult }).result; return true; });
+        assert.equal(failed!.failures[0]!.evidence, undefined);
+        await assert.rejects(stat(join(root, 'evidence')), { code: 'ENOENT' });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
 });

@@ -5,6 +5,7 @@ import { PACKAGE_VERSION, describeMomentFailure, parseMomentCommandRequest, type
 import { createWriter } from './writer.js';
 import { BrowserSetupFailure } from './internal/browser-failure.js';
 import { MomentSetupError, resolveSetup, type MomentSetup } from './setup.js';
+import { EVIDENCE_STAGES, captureEvidence, evidenceRoot, type FailureEvidence } from './evidence.js';
 export type OwnedBrowser = {
     page: Page;
     focus?(): Promise<void>;
@@ -100,15 +101,24 @@ class Session implements MomentSession {
     private activity(activity: MomentResult['activity'], destination?: string) { this.result = {
         ...this.result, activity, updatedAt: new Date().toISOString()
     }; this.destination = destination; this.revision++; }
-    private failureRecord(stage: FailureStage, checkpointId?: string, code: MomentResult['failures'][number]['code'] = 'operation-failed') {
+    private failureRecord(stage: FailureStage, checkpointId?: string, code: MomentResult['failures'][number]['code'] = 'operation-failed', evidence?: FailureEvidence) {
         this.failure = {
-            stage, ...(checkpointId ? { checkpointId } : {})
+            stage, ...(checkpointId ? { checkpointId } : {}), ...(evidence ? { detail: evidence.summary, evidence: evidence.file } : {})
         };
         this.result = {
             ...this.result, failures: [...this.result.failures, {
-                    stage, code, ...(checkpointId ? { checkpointId } : {}), at: new Date().toISOString()
+                    stage, code, ...(checkpointId ? { checkpointId } : {}), ...(evidence ? { evidence: evidence.relative } : {}), at: new Date().toISOString()
                 }], outcome: 'incomplete'
         };
+    }
+    /** Best effort: evidence never changes the run's outcome, and its absence is not a failure. */
+    private async captureFailure(stage: FailureStage, checkpointId: string | undefined, error: unknown): Promise<FailureEvidence | undefined> {
+        const root = evidenceRoot(this.config);
+        if (!root || !EVIDENCE_STAGES.includes(stage)) return undefined;
+        const base = checkpointId ? `${stage}-${checkpointId}` : stage;
+        const attempt = this.result.failures.filter(f => f.stage === stage && f.checkpointId === checkpointId).length + 1;
+        try { return await captureEvidence(root, this.result.runRef, attempt > 1 ? `${base}-${attempt}` : base, this.browser?.page, error); }
+        catch { return undefined; }
     }
     private async persist() {
         try {
@@ -159,7 +169,7 @@ class Session implements MomentSession {
     private async openRun(target: string, previousRunRef?: string, setup?: MomentSetup, allocatedRunRef?: string, reuseBrowser = false) {
         const at = new Date().toISOString();
         this.result = {
-            schemaVersion: 2, packageVersion: PACKAGE_VERSION, sessionId: this.sessionId, runRef: allocatedRunRef ?? randomUUID(), journeyId: this.definition.id, target, ...(previousRunRef ? { previousRunRef } : {}), ...(setup ? { setup } : {}), ...(this.selection ? { selection: this.selection } : {}), activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending'
+            schemaVersion: 3, packageVersion: PACKAGE_VERSION, sessionId: this.sessionId, runRef: allocatedRunRef ?? randomUUID(), journeyId: this.definition.id, target, ...(previousRunRef ? { previousRunRef } : {}), ...(setup ? { setup } : {}), ...(this.selection ? { selection: this.selection } : {}), activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending'
         };
         this.position = -1;
         this.driver = undefined;
@@ -199,7 +209,7 @@ class Session implements MomentSession {
             if (!(this.options.headless ?? !!this.options.once)) await this.browser.focus?.();
         }
         catch (error) {
-            this.recordOperationFailure();
+            await this.recordOperationFailure(error);
             if (error instanceof BrowserSetupFailure && error.closeFailed)
                 this.failureRecord('close');
             this.terminal = !reuseBrowser;
@@ -336,10 +346,10 @@ class Session implements MomentSession {
                     await this.persist();
                 }
             }
-            catch {
+            catch (error) {
                 this.playback = { kind: 'idle' };
                 this.progress = undefined;
-                this.recordOperationFailure();
+                await this.recordOperationFailure(error);
                 this.activity('needs-attention', this.destination);
                 await this.tryPersist();
             }
@@ -392,7 +402,7 @@ class Session implements MomentSession {
                     this.selectionPhase('started');
                     await this.persist();
                 }
-            } catch {
+            } catch (error) {
                 // Admission and predecessor failures hold the exact original custody.
                 if (this.result.runRef === this.selection?.fromRunRef) {
                     this.failureRecord(this.stage);
@@ -400,7 +410,7 @@ class Session implements MomentSession {
                     this.activity('needs-attention');
                     await this.retainBlockedSelection();
                 } else {
-                    this.recordOperationFailure();
+                    await this.recordOperationFailure(error);
                     this.terminal = false;
                     this.selectionPhase('blocked');
                     this.activity('needs-attention');
@@ -415,20 +425,22 @@ class Session implements MomentSession {
         try { await this.writer(this.currentResult()); }
         catch { /* Existing custody remains held; failure is visible in the current observation. */ }
     }
-    private recordOperationFailure() {
+    private async recordOperationFailure(error: unknown) {
         if (this.terminal) return;
-        this.failureRecord(this.stage, this.destination, this.ending || this.options.signal?.aborted ? 'interrupted' : 'operation-failed');
-        if (this.stage === 'verify') {
+        const stage = this.stage, destination = this.destination;
+        const code = this.ending || this.options.signal?.aborted ? 'interrupted' : 'operation-failed';
+        this.failureRecord(stage, destination, code, code === 'operation-failed' ? await this.captureFailure(stage, destination, error) : undefined);
+        if (stage === 'verify') {
             this.result = {
                 ...this.result,
                 observations: [...this.result.observations, {
-                    checkpointId: this.destination!,
+                    checkpointId: destination!,
                     at: new Date().toISOString(),
                     provenance: 'native',
                     status: 'failed'
                 }]
             };
-        } else if (this.stage !== 'reconcile') {
+        } else if (stage !== 'reconcile') {
             this.terminal = true;
         }
     }
@@ -543,9 +555,9 @@ class Session implements MomentSession {
                 throw Error('Invalid cleanup');
             this.result = { ...this.result, cleanup };
         }
-        catch {
+        catch (error) {
             this.result = { ...this.result, cleanup: 'incomplete' };
-            this.failureRecord('cleanup');
+            this.failureRecord('cleanup', undefined, 'operation-failed', await this.captureFailure('cleanup', undefined, error));
             return this.holdCloseCustody();
         }
         this.result = {

@@ -96,6 +96,10 @@ export type MomentsView = {
     failure?: {
         stage: "admission" | "browser" | "create" | "enter" | "verify" | "reconcile" | "cleanup" | "persist" | "close";
         checkpointId?: string;
+        /** Session-local: first line of the thrown message. Never persisted in the receipt. */
+        detail?: string;
+        /** Session-local: absolute path of the local evidence file. */
+        evidence?: string;
     };
     lastVerified?: {
         checkpointId: string;

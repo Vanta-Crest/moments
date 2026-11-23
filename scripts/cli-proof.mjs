@@ -93,7 +93,7 @@ try {
     const configuredReceipts = await readdir(receiptDir);
     assert.equal(configuredReceipts.length, 3);
     const configuredReceipt = JSON.parse(await readFile(join(receiptDir, configuredReceipts.find(file => !receipts.includes(file))), 'utf8'));
-    assert.equal(configuredReceipt.schemaVersion, 2);
+    assert.equal(configuredReceipt.schemaVersion, 3);
     assert.deepEqual(configuredReceipt.setup, { schemaVersion: 1, values: { name: 'Custom name' } });
     assert.equal(configuredReceipt.target, 'draft');
     await writeFile(join(plain, 'broken.ts'), `throw new Error('${secret}');`);

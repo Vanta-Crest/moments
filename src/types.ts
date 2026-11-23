@@ -30,7 +30,7 @@ export type JourneyDefinition<I extends string = string> = {
     create(context: JourneyContext): JourneyDriver<I>;
 };
 export type MomentResult = {
-    schemaVersion: 2;
+    schemaVersion: 3;
     packageVersion: typeof PACKAGE_VERSION;
     sessionId: string;
     runRef: string;
@@ -54,6 +54,8 @@ export type MomentResult = {
         stage: FailureStage;
         code: 'operation-failed' | 'persistence-failed' | 'interrupted';
         checkpointId?: string;
+        /** Local evidence file, relative to the evidence directory: `<runRef>/<stage>-<checkpoint>.txt`. */
+        evidence?: string;
         at: string;
     }[];
     outcome: 'pending' | CleanupOutcome | 'incomplete';
@@ -64,6 +66,8 @@ export type MomentsConfig = {
     beforeRun(journeyId: string): Promise<void>;
     /** Open run controls in a separate Moments Director window. Interactive runs only. */
     director?: boolean;
+    /** Failure evidence (message, URL, screenshot). Default `<outputDir>/../evidence`; none with `writeReceipt` unless set; `false` disables. */
+    evidenceDir?: string | false;
     catalogue?: { view: MomentCatalogue; admit(target: string): Promise<void> };
 } & ({
     outputDir?: string;

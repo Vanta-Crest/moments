@@ -38,6 +38,7 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
   const selected = view?.checkpoints.find(point => point.id === selectedId);
   const selectedIndex = view?.checkpoints.findIndex(point => point.id === selectedId) ?? -1;
   const playing = view?.playback.kind === "playing" ? view.playback : undefined;
+  const failedTitle = view?.checkpoints.find(point => point.id === view.failure?.checkpointId)?.title;
   const next = view?.checkpoints.find(point => point.id === view.nextId);
   const last = view?.checkpoints.at(-1);
   const playToSelection = selectedIndex > currentIndex && selected?.opening === "reuse";
@@ -160,7 +161,10 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
         {draft.setup && <p><button type="button" data-moments-values aria-label="Run values" onClick={openValues}>Run values · {draft.summary}</button>{draft.changed && <span> Draft changes</span>}</p>}
         {draft.unavailable && <p>Run values are unavailable because their definition does not match this session.</p>}
         <p role="status">{status}</p>
-        {view.failure && <p role="alert">Needs attention: {view.failure.stage}{view.failure.checkpointId ? ` at ${view.failure.checkpointId}` : ""}.</p>}
+        {view.failure && (view.failure.detail
+          ? <p role="alert">{failedTitle ? `Checkpoint "${failedTitle}" failed` : "Failed"} at {view.failure.stage}: {view.failure.detail}</p>
+          : <p role="alert">Needs attention: {view.failure.stage}{view.failure.checkpointId ? ` at ${view.failure.checkpointId}` : ""}.</p>)}
+        {view.failure?.evidence && <p>Evidence: <code>{view.failure.evidence}</code></p>}
         {view.message && <p role="alert">{view.message}</p>}
         <div className="moments-package__row">
           <button type="button" disabled={!allowed(view.controls.continue)} onClick={() => send({ kind: "continue" })}>Continue</button>
