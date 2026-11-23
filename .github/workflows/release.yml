@@ -1,24 +1,27 @@
-name: Publish preview
+name: Publish
 on:
-  workflow_dispatch:
+  push:
+    tags: ['v*']
 permissions:
   contents: read
 jobs:
-  preview:
+  publish:
     runs-on: ubuntu-latest
-    environment: npm-preview
     timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          registry-url: https://registry.npmjs.org
+          registry-url: https://npm.pkg.github.com
+          scope: '@vanta-crest'
           cache: npm
       - run: npm ci
+      - name: Tag matches package version
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
       - run: npm run build
       - run: npm test
       - run: node scripts/cli-proof.mjs
@@ -31,10 +34,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: preview-package-and-proof
+          name: release-package-and-proof
           include-hidden-files: true
           if-no-files-found: error
           path: |
             .release/*.tgz
             examples/task-app/.proof/**
-      - run: npm publish ./.release/*.tgz --access public --tag next
+      - run: npm publish ./.release/*.tgz
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

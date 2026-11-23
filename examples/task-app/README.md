@@ -54,9 +54,7 @@ MOMENTS_TARBALL=/absolute/path/to/moments.tgz \
 npm run proof
 ```
 
-Inside Alpine, the owner runs this finite harness under the host-process guard
-after consulting the verification queue. Do not start it alongside unadmitted
-browser/build work. The harness owns its temporary-port server and CLI children;
+Do not start it alongside other heavy browser/build work on a shared machine. The harness owns its temporary-port server and CLI children;
 it does not reuse or stop another developer's server or browser. `npm run build`
 is a separate prerequisite; proof never rebuilds its tested inputs.
 

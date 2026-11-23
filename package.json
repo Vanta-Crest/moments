@@ -1,8 +1,15 @@
 {
-  "name": "@alpine/moments",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@vanta-crest/moments",
+  "version": "0.1.0",
   "description": "Open a real application at a verified checkpoint, explore by hand, and continue the same journey.",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vanta-Crest/moments.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "engines": {
     "node": ">=24 <25"
   },
@@ -37,7 +44,8 @@
   "scripts": {
     "build": "tsc6 -p tsconfig.json && node scripts/copy-assets.mjs",
     "check-types": "tsc6 -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts",
+    "version": "node scripts/sync-version.mjs && git add src/internal/protocol.ts"
   },
   "peerDependencies": {
     "@playwright/test": "^1.60.0",

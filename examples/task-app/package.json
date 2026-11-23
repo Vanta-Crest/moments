@@ -10,7 +10,7 @@
     "proof": "node proof.mjs"
   },
   "dependencies": {
-    "@alpine/moments": "file:../..",
+    "@vanta-crest/moments": "file:../..",
     "@playwright/test": "1.60.0",
     "esbuild": "^0.25.0",
     "react": "^18.3.1",

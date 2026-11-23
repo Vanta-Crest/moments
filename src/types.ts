@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { MomentCatalogue, MomentSelection, MomentCommandRequest, MomentCommandReply, MomentProgress, MomentsView } from './internal/protocol.js';
+import type { PACKAGE_VERSION, MomentCatalogue, MomentSelection, MomentCommandRequest, MomentCommandReply, MomentProgress, MomentsView } from './internal/protocol.js';
 import type { MomentSetup, SetupDefinition } from './setup.js';
 export type FailureStage = 'admission' | 'browser' | 'create' | 'enter' | 'verify' | 'reconcile' | 'cleanup' | 'persist' | 'close';
 export type CleanupOutcome = 'complete' | 'neutralized-with-residue';
@@ -31,7 +31,7 @@ export type JourneyDefinition<I extends string = string> = {
 };
 export type MomentResult = {
     schemaVersion: 2;
-    packageVersion: '0.0.0';
+    packageVersion: typeof PACKAGE_VERSION;
     sessionId: string;
     runRef: string;
     journeyId: string;

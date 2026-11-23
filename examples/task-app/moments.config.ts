@@ -1,4 +1,4 @@
-import type { MomentsConfig } from '@alpine/moments';
+import type { MomentsConfig } from '@vanta-crest/moments';
 import { taskJourney } from './journey.js';
 
 const config: MomentsConfig = {

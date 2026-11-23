@@ -1,26 +1,27 @@
 # Releasing
 
-Confirm GitHub owner, npm name, source ownership and license before publishing.
-The public repository must contain a clean package export, without Alpine history,
-adapters, private fixtures, credentials or proof receipts.
+Moments is published privately to GitHub Packages as `@vanta-crest/moments`.
 
-1. Export package source, scripts, tests, example, docs and repository metadata.
-2. Set public name, preview version, license and repository URL. Update example
-   imports/dependency and protocol version together. Add the chosen LICENSE.
-3. Retain the dependency lockfile. Build and prove the installed tarball outside
-   Alpine on macOS and Linux. Inspect members and retain the artifact hash.
-4. Push clean source, enable private vulnerability reporting and create release
-   notes tied to the source commit and artifact identity.
-5. Publish the verified artifact with public access and `next`. Test a fresh
-   registry install before claiming registry availability.
-6. Configure the exact repository/workflow as an npm trusted publisher with the
-   intended publish permission. Follow [npm's instructions](https://docs.npmjs.com/trusted-publishers/).
+1. On `main`, run `npm version <patch|minor|major>`. The `version` script keeps
+   `PACKAGE_VERSION` (the runner ↔ Director/panel protocol version) equal to
+   `package.json`; `src/version.test.ts` fails if they ever drift.
+2. `git push --follow-tags`. The `Publish` workflow runs on the `v*` tag: it checks
+   the tag equals the package version, builds, tests, runs the CLI proof, installs
+   the packed tarball into the task-app example, runs the browser proof, uploads
+   the tarball and proof as an artifact, then publishes that exact tarball.
+3. Consumers bump the dependency in a separate, verified change.
 
-Publishing needs actual npm authorization. The release workflow does not create
-an account or infer rights. After launch, make the public repo the source of truth;
-replace Alpine's workspace copy with a versioned dependency in a separately
-verified integration change, rather than maintaining diverging copies.
+A failed proof publishes nothing. Never publish from a laptop.
 
-GitHub and npm are the first channels. Next, have a new developer follow the guide
-and prepare a small Playwright community walkthrough showing one real run.
-Announcements remain drafts until explicitly sent; visibility cannot guarantee use.
+## Consuming
+
+Add to the consuming repository's `.npmrc` (committed; it holds no secret):
+
+```ini
+@vanta-crest:registry=https://npm.pkg.github.com
+```
+
+Developers authenticate once with a token that has `read:packages`, e.g.
+`npm login --scope=@vanta-crest --auth-type=legacy --registry=https://npm.pkg.github.com`
+or `//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}` in their user `~/.npmrc`.
+CI uses a token with `read:packages` access to `Vanta-Crest/moments`.

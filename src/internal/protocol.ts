@@ -1,6 +1,6 @@
 import { parseMomentSetup, type MomentSetup, type SetupField, type SetupIssue, type SetupValues } from '../setup.js';
 export * from '../setup.js';
-export const PACKAGE_VERSION = '0.0.0' as const;
+export const PACKAGE_VERSION = '0.1.0' as const;
 /** Browser-safe control contract. Product credentials never cross this boundary. */
 export type MomentCommand = {
     kind: "select";

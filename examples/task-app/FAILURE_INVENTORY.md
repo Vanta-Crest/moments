@@ -3,7 +3,7 @@
 Written before implementing this example. New tests enter through the installed
 CLI and real browser UI, backed by the real HTTP server and persistent JSON state.
 
-- Package cannot be used outside Alpine: install an actual npm tarball in a copied
+- Package cannot be used outside its own checkout: install an actual npm tarball in a copied
   example outside the checkout, build its React app, and run its installed CLI.
 - A checkpoint reports success without committed state: verify through independent
   HTTP reads, then force that read to fail after a successful create. Check must

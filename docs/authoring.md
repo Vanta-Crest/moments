@@ -7,7 +7,7 @@ the selectors and verification must match the application you actually own.
 
 ```ts
 import { expect } from "@playwright/test";
-import { defineJourney, openMoment } from "@alpine/moments";
+import { defineJourney, openMoment } from "@vanta-crest/moments";
 
 const registration = defineJourney({
   id: "registration",
@@ -99,7 +99,7 @@ tokens and resource custody in the existing per-run driver. The setup contains
 only public text that the reviewer may use to autofill native forms.
 
 ```ts
-import { defineJourney, validateSetupValues, type SetupDefinition } from "@alpine/moments";
+import { defineJourney, validateSetupValues, type SetupDefinition } from "@vanta-crest/moments";
 
 const fields = [{ key: "displayName", label: "Display name", maxLength: 120 }] as const;
 const setup: SetupDefinition = {
@@ -143,8 +143,7 @@ state; the new panel starts from the new run's active values.
 The panel's **Export run setup** downloads active requested inputs and the shown
 last verified checkpoint (or the first checkpoint if none is verified). Manual
 product edits and generated access are excluded. Import that file with
-`moments open --setup ./review.json` or, for Alpine onboarding,
-`alpine moment open --setup ./review.json`. The versioned JSON format and bounds
+`moments open --setup ./review.json`. The versioned JSON format and bounds
 are shared through the browser-safe `/protocol` exports. File I/O belongs in the
 CLI, and a downloaded filename is not a runner-owned recovery path.
 
@@ -223,7 +222,7 @@ own resource inventory and any additional domain evidence they require.
 
 ## React integration
 
-Import `useMomentsSession` from `@alpine/moments/react`. It exposes connection,
+Import `useMomentsSession` from `@vanta-crest/moments/react`. It exposes connection,
 authoritative view, sending/message state and `submit(intent)`. The hook handles
 poll ordering, stale sessions, version mismatch and connection loss without
 replaying actions. Import the optional `MomentsPanel` and `/styles.css` for native controls, or build your own panel over this hook.

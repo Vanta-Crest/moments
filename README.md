@@ -4,9 +4,8 @@ Open a real application at a verified checkpoint, explore by hand, then continue
 the same journey. Moments coordinates browser and run lifecycle; your driver
 performs application actions, verifies outcomes and cleans up its own resources.
 
-Development preview: `@alpine/moments@0.0.0` is currently private. Public registry
-installation follows confirmed release identity and licensing. The local example
-provides the complete developer path.
+Private package on GitHub Packages: `@vanta-crest/moments`. See
+[releasing](docs/releasing.md#consuming) for registry setup.
 
 ## Try the task app
 
@@ -41,7 +40,7 @@ npx moments open task.completed --once
 
 This runs headless, verifies the target, cleans up and prints the result. Inspect
 `.moments/runs/` for the JSON receipt. Incomplete runs exit 1. The example uses
-real HTTP/backend state without accounts, providers, cloud or Alpine services.
+real HTTP/backend state without accounts, providers or cloud services.
 
 ## Add it to your application
 
@@ -50,7 +49,7 @@ Install Moments and `@playwright/test` as development dependencies, then run
 `moments.config.ts`:
 
 ```ts
-import { defineConfig } from "@alpine/moments";
+import { defineConfig } from "@vanta-crest/moments";
 import { task } from "./task-journey.js";
 
 export default defineConfig({
@@ -69,8 +68,8 @@ file. Receipt paths resolve beside the config; parent directories are not search
 Optional development controls:
 
 ```tsx
-import { MomentsPanel } from "@alpine/moments/react";
-import "@alpine/moments/styles.css";
+import { MomentsPanel } from "@vanta-crest/moments/react";
+import "@vanta-crest/moments/styles.css";
 
 export function DevelopmentControls() {
   return <MomentsPanel />;

@@ -5,7 +5,7 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import config from './moments.config.js';
 import { taskJourney, taskTitle } from './journey.js';
-import type { JourneyContext } from '@alpine/moments';
+import type { JourneyContext } from '@vanta-crest/moments';
 
 const scenario = process.env.TASK_APP_SCENARIO || 'manual';
 const evidence = process.env.TASK_APP_EVIDENCE!;

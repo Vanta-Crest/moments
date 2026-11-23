@@ -1,4 +1,4 @@
-import { defineJourney, type JourneyContext } from '@alpine/moments';
+import { defineJourney, type JourneyContext } from '@vanta-crest/moments';
 
 export function taskTitle(runRef: string) { return `Review a small task ${runRef}`; }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MomentsPanel } from '@alpine/moments/react';
-import '@alpine/moments/styles.css';
+import { MomentsPanel } from '@vanta-crest/moments/react';
+import '@vanta-crest/moments/styles.css';
 import './app.css';
 
 function App() {
