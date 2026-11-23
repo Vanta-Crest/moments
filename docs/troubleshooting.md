@@ -28,6 +28,6 @@ Config and drivers are trusted development code. Moments is not production
 authorization. Do not mount its control panel in a production entry point.
 
 Use **Export run setup** before ending when you want a portable public recipe,
-then run `moments open --setup ./review.json` . A custom receipt writer may not provide a
+then run `moments open --setup ./review.json`. A custom receipt writer may not provide a
 filesystem path. Inspect its actual store or retain the returned result; do not
 infer that a setup file or a durable receipt exists from an accepted command.
