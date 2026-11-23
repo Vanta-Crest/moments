@@ -3,8 +3,9 @@ import { loadConfig, ConfigError } from './config.js';
 import { openMoment, MomentOpenError } from './index.js';
 import { describeMomentFailure } from './internal/protocol.js';
 import type { MomentsConfig, MomentResult } from './types.js';
-import { readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { evidenceRoot } from './evidence.js';
 import { MAX_SETUP_BYTES, formatSetupIssues, MomentSetupError, parseSetupFile, type MomentSetupFile } from './setup.js';
 
 const help = `Usage:
@@ -74,20 +75,59 @@ async function readSetupFile(filePath: string): Promise<MomentSetupFile> {
     catch (error) { if (error instanceof MomentSetupError) throw error; throw new UsageError('Invalid run setup file. Check its version, fields and complete public values.'); }
 }
 
-function reportResult(result: MomentResult, config: MomentsConfig): void {
+/** One line per checkpoint through the furthest of the target and anything observed. */
+function checkpointSummary(result: MomentResult, checkpoints: readonly { id: string; title: string }[]): string {
+    const touched = [result.target, ...result.observations.map(o => o.checkpointId), ...result.failures.flatMap(f => f.checkpointId ?? [])];
+    const last = Math.max(...touched.map(id => checkpoints.findIndex(point => point.id === id)));
+    return checkpoints.slice(0, last + 1).map(point => {
+        const observed = result.observations.filter(o => o.checkpointId === point.id).at(-1);
+        const failedLater = result.failures.some(f => f.checkpointId === point.id && (!observed || f.at >= observed.at));
+        const status = failedLater ? 'failed' : observed?.status ?? 'not reached';
+        const provenance = observed && !failedLater && observed.provenance !== 'native' ? ` (${observed.provenance})` : '';
+        return `  ${status.padEnd(12)}${point.title}${provenance}\n`;
+    }).join('');
+}
+
+async function firstLine(path: string): Promise<string | undefined> {
+    try { return (await readFile(path, 'utf8')).split('\n')[0] || undefined; } catch { return undefined; }
+}
+
+/** Tooling reads `<outputDir>/latest.json` instead of guessing the newest receipt by time. */
+async function writeLatest(outputDir: string, pointer: object): Promise<void> {
+    const temporary = join(outputDir, `.latest.${process.pid}.tmp`);
+    try {
+        await writeFile(temporary, JSON.stringify(pointer, null, 2) + '\n', { mode: 0o600 });
+        await rename(temporary, join(outputDir, 'latest.json'));
+    } catch {
+        await rm(temporary, { force: true });
+        process.stderr.write('Moments: latest.json could not be written.\n');
+    }
+}
+
+async function reportResult(result: MomentResult, config: MomentsConfig): Promise<void> {
+    const receipt = config.writeReceipt ? undefined : resolve(config.outputDir ?? ".moments/runs", `${result.runRef}.json`);
+    const root = evidenceRoot(config);
+    const evidence = (relative?: string) => root && relative ? join(root, relative) : undefined;
     process.stdout.write(`Run reference: ${result.runRef}\n`);
-    if (!config.writeReceipt) process.stdout.write(`Run receipt: ${resolve(config.outputDir ?? ".moments/runs", `${result.runRef}.json`)}\n`);
+    if (receipt) process.stdout.write(`Run receipt: ${receipt}\n`);
     process.stdout.write(`Moments: ${result.outcome}; cleanup: ${result.cleanup}.\n`);
+    const journey = config.journeys.find(item => item.id === result.journeyId);
     if (result.failures.length) {
         const stages = [...new Set(result.failures.map(failure => failure.stage))].join(', ');
         process.stderr.write(`Moments: needs attention at ${stages}. Inspect the run receipt for details.\n`);
-        const journey = config.journeys.find(item => item.id === result.journeyId);
         for (const failure of result.failures) {
-            process.stderr.write(`${describeMomentFailure(failure, journey?.checkpoints.find(point => point.id === failure.checkpointId))}\n`);
+            const checkpoint = journey?.checkpoints.find(point => point.id === failure.checkpointId);
+            const file = evidence(failure.evidence), detail = file && await firstLine(file);
+            process.stderr.write(file && detail
+                ? `${checkpoint ? `Checkpoint "${checkpoint.title}" failed` : 'Run failed'} at ${failure.stage}: ${detail} (evidence: ${file})\n`
+                : `${describeMomentFailure(failure, checkpoint)}\n`);
         }
         if (result.failures.some(failure => failure.code === 'persistence-failed'))
             process.stderr.write('Moments: receipt persistence failed; durable recovery was not established.\n');
     }
+    if (journey) process.stdout.write(`Checkpoints:\n${checkpointSummary(result, journey.checkpoints)}`);
+    const first = evidence(result.failures.find(failure => failure.evidence)?.evidence);
+    if (receipt) await writeLatest(config.outputDir!, { runRef: result.runRef, receipt, outcome: result.outcome, ...(first ? { evidence: first } : {}) });
 }
 
 async function main(): Promise<number> {
@@ -134,11 +174,11 @@ async function main(): Promise<number> {
                 ? 'Moments: ready. Use the Moments Director window to move through the journey; End or closing either window finishes.\n'
                 : 'Moments: ready. Explore the browser, then use End or close the browser to finish.\n');
             const result = await session.done;
-            reportResult(result, config);
+            await reportResult(result, config);
             return interrupted ? (interrupted === 'SIGTERM' ? 143 : 130) : result.outcome === 'incomplete' ? 1 : 0;
         } catch (error) {
             if (error instanceof MomentSetupError) throw error;
-            if (error instanceof MomentOpenError) reportResult(error.result, config);
+            if (error instanceof MomentOpenError) await reportResult(error.result, config);
             else process.stderr.write('Moments: could not finish the run. Check your app and configuration, then inspect any run receipt.\n');
             return interrupted ? (interrupted === 'SIGTERM' ? 143 : 130) : 1;
         }

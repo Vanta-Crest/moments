@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Run against the built executable, or supply the installed package's dist/cli.js.
 const cli = resolve(process.argv[2] ?? fileURLToPath(new URL('../dist/cli.js', import.meta.url)));
-const temporary = await mkdtemp(join(tmpdir(), 'moments-cli-proof-'));
+const temporary = await realpath(await mkdtemp(join(tmpdir(), 'moments-cli-proof-')));
 let checks = 0;
 const secret = 'DO-NOT-PRINT-CONFIG-SECRET';
 const config = `export default {
@@ -46,7 +46,8 @@ try {
     run(['open', 'task.flow.draft', '--once'], plain, 1, 'needs attention at admission');
     run(['open', 'task.flow.draft', '--once', '--config', '../moments.config.ts'], child, 1, 'needs attention at admission');
     const receiptDir = join(plain, '.moments', 'runs');
-    const receipts = await readdir(receiptDir);
+    const receiptFiles = async () => (await readdir(receiptDir)).filter(file => file !== 'latest.json');
+    const receipts = await receiptFiles();
     assert.equal(receipts.length, 2, 'Default output resolves beside the explicit config, not caller cwd');
     assert.equal((await stat(receiptDir)).mode & 0o077, 0);
     for (const file of receipts) {
@@ -64,7 +65,7 @@ try {
     run(['open', '--setup', 'review.json', '--setup', 'review.json'], child, 2, '--setup');
     run(['open', 'task.flow.other', '--setup', 'review.json', '--config', '../moments.config.ts'], child, 2, 'match');
     run(['open', '--setup', 'review.json', '--config', '../moments.config.ts'], child, 2, 'Invalid run setup');
-    assert.equal((await readdir(receiptDir)).length, 2, 'Rejected setup cannot reach admission or receipt creation');
+    assert.equal((await receiptFiles()).length, 2, 'Rejected setup cannot reach admission or receipt creation');
     const configured = config.replace("title: 'Tasks', checkpoints", `title: 'Tasks', setup: {
       schemaVersion: 1, fields: [{ key: 'name', label: 'Name', maxLength: 40 }],
       defaults: { name: 'Default' }, parse: values => ({ ok: true, values })
@@ -87,10 +88,10 @@ try {
     run(['open', '--setup', 'invalid.json', '--config', '../configured.ts'], child, 2, 'Invalid run setup');
     await writeFile(join(child, 'oversized.json'), ' '.repeat(65537));
     run(['open', '--setup', 'oversized.json', '--config', '../configured.ts'], child, 2, '64 KiB');
-    assert.equal((await readdir(receiptDir)).length, 2, 'Malformed and incompatible input has no run effects');
+    assert.equal((await receiptFiles()).length, 2, 'Malformed and incompatible input has no run effects');
     const diagnostic = run(['open', '--setup', 'review.json', '--config', '../configured.ts', '--once'], child, 1, 'Check the app prerequisites');
     assert.match(diagnostic.stdout, /Run reference: [a-z0-9-]+/);
-    const configuredReceipts = await readdir(receiptDir);
+    const configuredReceipts = await receiptFiles();
     assert.equal(configuredReceipts.length, 3);
     const configuredReceipt = JSON.parse(await readFile(join(receiptDir, configuredReceipts.find(file => !receipts.includes(file))), 'utf8'));
     assert.equal(configuredReceipt.schemaVersion, 3);
@@ -104,6 +105,26 @@ try {
     run(['list', '--config', 'director.ts'], plain, 2, 'Invalid Moments config');
     await writeFile(join(plain, 'director-on.ts'), config.replace('export default {', 'export default {\n  director: true,'));
     run(['list', '--config', 'director-on.ts'], plain, 0, 'task.flow.draft');
+    // A driver failure in a real headless browser names the checkpoint, the thrown message and local evidence.
+    await writeFile(join(plain, 'failing.ts'), `export default {
+  baseURL: 'http://127.0.0.1:9',
+  beforeRun: async () => {},
+  journeys: [{ id: 'task.flow', title: 'Tasks', checkpoints: [{ id: 'draft', title: 'Draft' }, { id: 'saved', title: 'Saved' }, { id: 'done', title: 'Done' }],
+    create: () => ({ enter: async id => { if (id === 'saved') throw new Error('Save button missing\\nCall log: waiting'); }, verify: async () => {},
+      reconcile: async () => 'draft', cleanup: async () => 'complete' }) }]
+};`);
+    const failed = run(['open', 'task.flow.saved', '--once', '--config', 'failing.ts'], plain, 1, 'Checkpoint "Saved" failed at enter: Save button missing The page was blank: the application server may not be responding. (evidence: ');
+    assert.match(failed.stdout + failed.stderr, /passed\s+Draft\n\s+failed\s+Saved\n/);
+    assert.doesNotMatch(failed.stdout + failed.stderr, /Done/, 'Checkpoints beyond the target are not listed');
+    const latest = JSON.parse(await readFile(join(receiptDir, 'latest.json'), 'utf8'));
+    assert.equal((await stat(join(receiptDir, 'latest.json'))).mode & 0o077, 0);
+    assert.equal(latest.outcome, 'incomplete');
+    assert.equal(latest.receipt, join(receiptDir, `${latest.runRef}.json`));
+    const failedReceipt = JSON.parse(await readFile(latest.receipt, 'utf8'));
+    assert.equal(failedReceipt.failures[0].evidence, `${latest.runRef}/enter-saved.txt`);
+    assert.equal(latest.evidence, join(plain, '.moments', 'evidence', failedReceipt.failures[0].evidence));
+    assert.ok((failed.stdout + failed.stderr).includes(`(evidence: ${latest.evidence})`));
+    assert.ok((await stat(latest.evidence.replace(/\.txt$/, '.png'))).size > 0, 'A screenshot sits beside the message');
     process.stdout.write(`${JSON.stringify({ cli, checks, outcome: 'passed', fixture: 'temporary independent cwd; ESM and no-package-json TypeScript config', assertions: 'help, args, discovery, scoped import, target, admission failure, secret-safe errors, director flag validation, config-relative private receipts, complete setup import, cwd-relative setup file, mismatch and malformed input before effects' })}\n`);
 } finally {
     await rm(temporary, { recursive: true, force: true });

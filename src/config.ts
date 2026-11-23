@@ -30,8 +30,9 @@ function validateConfig(value: unknown): asserts value is MomentsConfig {
         if (config.writeReceipt !== undefined && typeof config.writeReceipt !== 'function') throw Error();
         if (config.outputDir !== undefined && config.writeReceipt !== undefined) throw Error();
         if (config.director !== undefined && typeof config.director !== 'boolean') throw Error();
+        if (config.evidenceDir !== undefined && config.evidenceDir !== false && (typeof config.evidenceDir !== 'string' || !config.evidenceDir.trim())) throw Error();
     } catch {
-        throw new ConfigError('Invalid Moments config. Check baseURL, journeys, beforeRun, director, and either outputDir or writeReceipt.');
+        throw new ConfigError('Invalid Moments config. Check baseURL, journeys, beforeRun, director, evidenceDir, and either outputDir or writeReceipt.');
     }
 }
 
@@ -59,6 +60,7 @@ export async function loadConfig(configPath?: string, cwd = process.cwd()): Prom
         throw new ConfigError('Could not load the config. Check its syntax, imports, and default export.');
     }
     validateConfig(value);
-    if (value.writeReceipt !== undefined) return value;
-    return { ...value, outputDir: resolve(dirname(path), value.outputDir ?? '.moments/runs') };
+    const evidenceDir = typeof value.evidenceDir === 'string' ? { evidenceDir: resolve(dirname(path), value.evidenceDir) } : {};
+    if (value.writeReceipt !== undefined) return { ...value, ...evidenceDir };
+    return { ...value, ...evidenceDir, outputDir: resolve(dirname(path), value.outputDir ?? '.moments/runs') };
 }
