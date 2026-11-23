@@ -38,9 +38,20 @@ For unattended use:
 npx moments open task.completed --once
 ```
 
-This runs headless, verifies the target, cleans up and prints the result. Inspect
-`.moments/runs/` for the JSON receipt. Incomplete runs exit 1. The example uses
-real HTTP/backend state without accounts, providers or cloud services.
+This runs headless, verifies the target, cleans up and prints the result: one
+line per checkpoint (passed, skipped, failed, not reached) and, for a failure,
+the checkpoint, stage, thrown message and a local evidence file with the page URL
+and a screenshot. `.moments/runs/latest.json` points at the run's JSON receipt.
+Incomplete runs exit 1. The example uses real HTTP/backend state without accounts,
+providers or cloud services.
+
+Useful `open` flags on slow or shared stacks:
+
+- `--resume` verifies each checkpoint before entering it and skips the ones that
+  already exist, instead of replaying every earlier step. See
+  [resuming](docs/authoring.md#resuming-a-journey) for when a journey supports it.
+- `--output <dir>` writes this run's receipts elsewhere, so parallel runs of one
+  config do not collide.
 
 ## Add it to your application
 

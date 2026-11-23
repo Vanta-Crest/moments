@@ -2,8 +2,8 @@
 
 ```sh
 moments list [--config path]
-moments open journey.checkpoint [--config path] [--once] [--headless]
-moments open [journey.checkpoint] --setup ./review.json [--config path] [--once] [--headless]
+moments open journey.checkpoint [--config path] [--once] [--headless] [--resume] [--output dir]
+moments open [journey.checkpoint] --setup ./review.json [--config path] [--once] [--headless] [--resume] [--output dir]
 moments --help
 ```
 
@@ -15,7 +15,16 @@ Moments Director window that is the sole holder of the browser bridge: applicati
 pages on every origin see no `window.moments`. Closing the Director ends the
 session like closing the app window (cleanup, receipt, both windows close).
 Restart and backward open close and reopen both windows.
-CLI output defaults to `.moments/runs` relative to the config file. Direct API
+Optional `navigationTimeoutMs` / `actionTimeoutMs` set the managed page's
+default timeouts before `create`. Optional `resumeProbeTimeoutMs` (default 3000)
+bounds each resume probe. Optional `evidenceDir` (string beside the config, or
+`false`) places failure evidence; the default is `<outputDir>/../evidence`.
+CLI output defaults to `.moments/runs` relative to the config file. `--output dir`
+replaces it for one run, relative to the caller's cwd; it requires `outputDir`
+mode, not `writeReceipt`. `--resume` verifies each checkpoint before entering it.
+After a run the CLI prints a line per failure (checkpoint, stage, first message
+line, evidence path) and a per-checkpoint summary, and writes
+`<outputDir>/latest.json` (`runRef`, `receipt`, `outcome`, optional `evidence`). Direct API
 paths follow the caller's cwd. Config modules execute trusted local code.
 Setup file paths resolve from the caller's cwd. Only `open` accepts `--setup`,
 once. Its journey/checkpoint supplies the target; an optional positional target
@@ -28,7 +37,7 @@ Playwright `page`, `baseURL`, `runRef`, optional immutable `setup` and optional
 version, fields, complete defaults and a pure parser. Unconfigured journeys
 reject explicit setup.
 
-`openMoment(config, {target, setup?, once?, headless?, signal?})` prepares the target and
+`openMoment(config, {target, setup?, once?, headless?, resume?, signal?})` prepares the target and
 returns a session. Initialization failure throws `MomentOpenError` after
 finalization; inspect its safe `result`. `--once` defaults headless and ends after
 verification. Interactive runs hold the browser until End or a shutdown signal.
@@ -59,12 +68,17 @@ runRef and the observed opening consequence for an open command. `/protocol`
 supports existing consumers. The root export is for Node.
 The default panel occupies normal document flow; the host chooses its placement.
 
-Results have schema version 2, identifiers, timestamps, observations, safe failure
-stages/codes and cleanup. Outcomes: `pending`, `complete`,
+Results have schema version 3, identifiers, timestamps, observations, safe failure
+stages/codes, optional relative `evidence` paths and cleanup. Observation
+provenance is `native` (entered by this run), `manual` (reached by the reviewer)
+or `existing` (already true on resume, not entered).
+`furthestVerified(order, floor, verify)` returns the furthest checkpoint from the
+end back to `floor` whose `verify` passes, or throws. Outcomes: `pending`, `complete`,
 `neutralized-with-residue`, `incomplete`. Failure history survives retries. New
 receipt directories use `0700`, files `0600`, and updates use atomic replacement.
-Existing directory permissions are not changed. No raw exceptions, credentials,
-browser storage or screenshots are collected.
+Existing directory permissions are not changed. Receipts collect no raw exceptions,
+credentials, browser storage or screenshots; failure messages and screenshots go
+only to the local evidence directory.
 Optional `setup` records requested autofill values, not observed/manual product
 values. Optional `replacementRequested: { checkpointId, setup }` records an
 accepted request, not successful replacement. It is persisted on the old run

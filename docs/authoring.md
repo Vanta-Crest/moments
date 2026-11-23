@@ -82,7 +82,58 @@ operations. A forced process kill cannot guarantee cleanup.
 | `cleanup()` | Settle and release only resources owned by this run, even after failed entry or verification. Return `complete` or `neutralized-with-residue`; throw when safety cannot be established. |
 
 The runner owns and closes the browser. Drivers own application resources and
-must not close the browser themselves. Construction must not start asynchronous
+must not close the browser themselves. Set the page's default timeouts once in the
+config with `navigationTimeoutMs` and `actionTimeoutMs` (for slow development
+servers) rather than in every journey; a journey may still set its own in `create`.
+
+Throw errors that say what was expected (`Error("Approval badge not shown")`):
+the first line of a failed step's message is what the CLI and Director show.
+
+`reconcile` usually checks from the last checkpoint back to the last verified one.
+`furthestVerified` does exactly that and throws a clear error when nothing in
+that range can be verified:
+
+```ts
+import { furthestVerified } from "@vanta-crest/moments";
+
+const order = ["empty", "filled"] as const;
+type Step = (typeof order)[number];
+
+// inside create():
+let verified: Step = "empty";
+async function verify(id: Step) {
+  await expect(page.getByLabel("Email")).toHaveValue(id === "filled" ? email : "");
+  verified = id;
+}
+return { enter, verify, reconcile: () => furthestVerified(order, verified, verify), cleanup };
+```
+
+The floor is the furthest checkpoint this run has verified, so reconciliation
+never moves behind it.
+
+### Resuming a journey
+
+On a shared development stack a later checkpoint may already be true from an
+earlier run, and replaying every `enter` can take many minutes. `--resume`
+(`openMoment(..., { resume: true })`) calls `verify` before entering each
+checkpoint, including the target. A checkpoint that verifies is recorded with
+provenance `existing` and is not entered. At the first one that does not verify,
+the run enters it and everything after it as usual. A failed probe is not
+recorded as a failure.
+
+A probe runs with page timeouts of `resumeProbeTimeoutMs` (default 3000), so an
+absent checkpoint costs seconds, not a full navigation timeout. Afterwards the
+page gets `navigationTimeoutMs` / `actionTimeoutMs` back, or Playwright's 30 s
+default: under `--resume`, a timeout set in `create` does not survive the probe,
+so set timeouts in the config. Playwright `expect` timeouts are separate and
+still apply.
+
+A journey is resumable only when each `verify` proves product state that outlives
+a run, from a fresh page: it navigates to what it checks, or reads the product's
+own API. It must not depend on in-page state (a value typed earlier, the page the
+previous step left open), and it must not depend on data derived from `runRef`,
+because a resumed run has a new `runRef`. A journey that creates per-run records
+(like the task-app example) is not resumable; run it without `--resume`. Construction must not start asynchronous
 work: a constructor that throws cannot return a cleanup handler.
 
 Manual progress is verified before adoption. Intermediate checkpoints are marked
@@ -202,9 +253,28 @@ original failed history.
 The default writer serializes updates and atomically replaces
 `.moments/runs/<runRef>.json` through a temporary file. New directories use mode
 `0700` and files `0600`; existing directory permissions are not changed. Results
-use schema version 2 and contain identifiers, timestamps, observations, cleanup,
+use schema version 3 and contain identifiers, timestamps, observations, cleanup,
 safe failure codes and optional public requested setup/replacement information.
 They do not contain browser storage, credentials, screenshots or raw exceptions.
+After each run the CLI also writes `<outputDir>/latest.json`:
+`{ runRef, receipt, outcome, evidence? }` with absolute paths. Read it instead of
+picking the newest receipt by time.
+
+### Failure evidence
+
+When `create`, `enter`, `verify`, `reconcile` or `cleanup` throws, Moments keeps
+local evidence beside the receipts: `<outputDir>/../evidence/<runRef>/<stage>-<checkpoint>.txt`
+(the message's first line, page URL, screenshot path, then the full message) and
+`.png` (a full-page screenshot). A repeated failure of the same step gets `-2`,
+`-3`. If the page body was empty, the first line adds "The page was blank: the
+application server may not be responding." Set `evidenceDir` in the config to
+put it elsewhere, or `false` to keep none. With `writeReceipt`, evidence is kept
+only when `evidenceDir` is set. The receipt failure carries only `evidence`, the
+path relative to the evidence directory. The message and screenshot never enter
+the receipt, but they may show anything on the page or in an error, so treat the
+evidence directory as private local data (directories `0700`, files `0600`).
+Admission, browser, persistence and close failures keep their safe description
+only.
 
 Provide an awaited `writeReceipt(result)` instead of `outputDir` when integrating
 with an application's existing store. Never supply both. Every writer receives

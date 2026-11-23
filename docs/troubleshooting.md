@@ -11,6 +11,11 @@
 | Embedded panel says not connected with `director: true` | Expected: the Director is the only control surface. Remove the embedded panel or ignore it. |
 | Version mismatch | Use the same Moments version in runner and app; rebuild and reconnect. |
 | Disconnected | The last view is stale; review state after reconnection. Actions are never replayed. |
+| "Checkpoint … failed at enter/verify" | Open the evidence file it names: thrown message, page URL and screenshot path. `latest.json` in the output directory points at the same run. |
+| "The page was blank" | The development server is probably wedged or still compiling. Check it before changing the journey. |
+| Each open replays every earlier step | Use `--resume` if the journey's `verify` proves lasting product state from a fresh page; see the authoring guide. |
+| A resumed run entered a step that already exists | Its `verify` failed within `resumeProbeTimeoutMs` on a fresh page. Make `verify` navigate to what it checks, or raise `resumeProbeTimeoutMs`. |
+| Parallel runs overwrite `latest.json` | Give each run its own `--output <dir>`. |
 | Destination verification fails | Restore state and Check; it retries verification without repeating entry. |
 | Manual state unknown | Restore a supported state or restart. Reconcile must identify state positively. |
 | Incomplete after retry | Earlier failures remain in history intentionally. |

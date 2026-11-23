@@ -10,8 +10,8 @@ import { MAX_SETUP_BYTES, formatSetupIssues, MomentSetupError, parseSetupFile, t
 
 const help = `Usage:
   moments list [--config <path>]
-  moments open <journey.checkpoint> [--config <path>] [--once] [--headless]
-  moments open [journey.checkpoint] --setup <path> [--config <path>] [--once] [--headless]
+  moments open <journey.checkpoint> [--config <path>] [--once] [--headless] [--resume] [--output <dir>]
+  moments open [journey.checkpoint] --setup <path> [--config <path>] [--once] [--headless] [--resume] [--output <dir>]
   moments --help
 
 Config defaults to moments.config.ts in the current directory.
@@ -20,6 +20,11 @@ Setup paths resolve from the current directory; a positional target must match t
 Open uses a headed browser; use End (panel or Moments Director) or close a Moments window to finish.
 --once verifies the target in a headless browser, cleans up, and exits.
 --headless runs an interactive session without a visible browser.
+--resume verifies each checkpoint before entering it; one already there is recorded
+         as existing and not entered. Entering starts at the first that fails.
+--output writes receipts and latest.json to <dir> (relative to the current directory)
+         for this run; failure evidence goes to <dir>/../evidence unless evidenceDir is set.
+A failed step prints its message and a local evidence file (message, URL, screenshot).
 Exit status: 0 completed, 1 incomplete, 2 invalid arguments/config,
              130 interrupted by SIGINT, 143 interrupted by SIGTERM.
 `;
