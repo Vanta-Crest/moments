@@ -16,6 +16,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
       - run: node scripts/cli-proof.mjs
@@ -23,7 +24,6 @@ jobs:
       - run: npm install --prefix examples/task-app
       - run: npm install --prefix examples/task-app --no-save ./.release/*.tgz
       - run: npm run build --prefix examples/task-app
-      - run: npx playwright install --with-deps chromium
       - run: MOMENTS_TARBALL="$(realpath .release/*.tgz)" npm run proof --prefix examples/task-app
       - uses: actions/upload-artifact@v4
         if: always()
