@@ -124,7 +124,8 @@ unknown/private keys. Structural codecs do not replace journey admission rules.
 `<evidence>/<runRef>/recording/` (directories `0700`, files `0600`):
 
 - `segment-<n>.webm`: 1920×1080 VP8 video at 25 fps. A new segment starts each
-  time filming resumes after a private checkpoint.
+  time filming resumes after a private checkpoint. Measured on the task app with
+  Playwright 1.60: about 3 MB per minute (about 2.3 MB at 720p).
 - `<checkpointId>.jpg` (then `-2`, `-3` on repeats): the video frame on screen when
   that checkpoint was verified. Private checkpoints have none.
 - `timeline.json`:
