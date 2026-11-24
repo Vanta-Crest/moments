@@ -114,9 +114,8 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
       } else if (scenario === 'controls') {
         const panel = page.getByRole('complementary', { name: 'Moments', exact: true });
         const confirmation = panel.getByRole('group', { name: 'Confirm fresh run' });
-        const checkpoint = panel.getByLabel('Checkpoint', { exact: true });
+        const checkpoint = (title: string) => panel.getByRole('group', { name: 'Checkpoint', exact: true }).getByRole('radio', { name: new RegExp(`^${title},`) });
         await page.setViewportSize({ width: 360, height: 740 });
-        await panel.getByText('Checkpoint and playback', { exact: true }).click();
         const dimensions = await panel.evaluate(element => {
           const rect = element.getBoundingClientRect();
           const content = element.querySelector('section')!;
@@ -170,8 +169,7 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
         await page.evaluate(() => { const proof = window as ProofWindow; window.moments = proof.proofBridge; });
         assertions.push('Version mismatch and connection interruption disable commands; reconnect submits no commands and creates no task');
 
-        await panel.getByText('Checkpoint and playback', { exact: true }).click();
-        await panel.getByLabel('Playback pace', { exact: true }).selectOption('demo');
+        await panel.getByRole('radio', { name: 'With pauses', exact: true }).check();
         await panelButton('Play journey');
         await expect.poll(async () => {
           const view = await page.evaluate(() => window.moments!.read());
@@ -188,7 +186,7 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
         assert.equal(completed.length, 1); assert.equal(completed[0].completed, true);
         assertions.push('Demo playback reaches a verified step, Pause stops before completing the task, and Play resumes to completion without duplicate records');
 
-        await checkpoint.selectOption('draft');
+        await checkpoint('Empty draft').check();
         await panelButton('Start fresh here');
         await confirmation.waitFor();
         await panelButton('Keep exploring');

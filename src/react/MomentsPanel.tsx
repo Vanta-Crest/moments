@@ -131,8 +131,17 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
     : view?.progress === "waiting-for-code" ? "Waiting for a fresh authenticator code…"
     : playing?.phase === "waiting" ? "Waiting briefly before the next step…"
     : view?.activity === "ready" ? view.nextId ? "Ready to explore" : "Final checkpoint verified. Keep exploring or end the session."
+    : view?.activity === "needs-attention" ? "Stopped. Review the problem below, then check this state or restart."
     : view?.destinationId ? `Working on ${view.checkpoints.find(point => point.id === view.destinationId)?.title ?? view.destinationId}…`
     : view?.activity.replaceAll("-", " ");
+  // One word for the badge; the sentence above stays the announced status.
+  const tone: Tone = !connected ? "idle" : view?.failure || view?.activity === "needs-attention" ? "attention"
+    : view?.progress === "waiting-for-code" ? "waiting" : view?.activity === "ready" ? view.nextId ? "ready" : "done"
+    : view?.activity === "closed" ? "idle" : "working";
+  const badge = !connected ? connection.kind === "connecting" ? "Connecting" : "Offline"
+    : { attention: "Needs attention", waiting: "Waiting for code", ready: "Ready", done: "Finished", working: playing ? "Playing" : "Working", idle: "Closed" }[tone];
+  const working = view && !["ready", "needs-attention", "closed"].includes(view.activity) ? view.destinationId : undefined;
+  const passed = view?.checkpoints.filter(point => point.status === "passed").length ?? 0;
 
   return <aside className={standalone ? "moments-package moments-package--standalone" : "moments-package"} aria-label="Moments" ref={root} onKeyDown={event => {
     if (event.key === "Escape" && !collapsed) {
@@ -140,81 +149,88 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
       if (mode !== "normal") back(); else if (confirmed) dismissConfirmation(); else if (!standalone) collapse();
     }
   }}>
-    {!collapsed && <section id={panelId} className="moments-package__panel" aria-label="Moment controls">
-      <header className="moments-package__row">
-        <strong>{view?.journey.title ?? "Moments"}</strong>
-        {!standalone && <button type="button" ref={collapseButton} aria-expanded={true} aria-controls={panelId} onClick={collapse}>Collapse</button>}
+    {!collapsed && <section id={panelId} className="moments-package__panel" aria-label="Moment controls" data-tone={tone}>
+      <header className="moments-package__masthead">
+        <div className="moments-package__row">
+          <span className="moments-package__kicker">Moments</span>
+          <span className="moments-package__badge"><span className="moments-package__dot" aria-hidden="true" />{badge}</span>
+          {!standalone && <button type="button" className="moments-package__quiet" ref={collapseButton} aria-expanded={true} aria-controls={panelId} onClick={collapse}>Collapse</button>}
+        </div>
+        <strong className="moments-package__journey">{view?.journey.title ?? "Moments"}</strong>
+        {view && <div className="moments-package__meter" aria-hidden="true">
+          {view.checkpoints.map(point => <span key={point.id} data-status={point.status} data-working={point.id === working || undefined} />)}
+        </div>}
       </header>
       {mode !== "normal" && view ? <RunValues draft={draft} view={view} heading={valuesHeading} review={mode === "review" ? setupReview : undefined}
         canPrepare={canPrepare} canPause={allowed(view.controls.pause)} onReview={reviewValues} onCommit={() => void prepare()} onBack={back} onPause={() => send({ kind: "pause" })} />
-      : <div className="moments-package__body">
-      <div role="status">
+      : <>
+      <div className="moments-package__body">
+      <div role="status" className="moments-package__notice">
         {connection.kind === "connecting" && <p>Connecting to Moments…</p>}
         {connection.kind === "unavailable" && <p>No Moments session is connected. Open a checkpoint with the Moments runner and use its browser.</p>}
         {connection.kind === "incompatible" && <p>Moments versions do not match. Use the same package version in this application and the runner, then reconnect.</p>}
         {connection.kind === "disconnected" && <p>Runner connection interrupted. Controls return when it reconnects. Actions will not be replayed.</p>}
       </div>
       {view && <>
-        <p className="moments-package__checkpoint">{current ? `Checkpoint ${currentIndex + 1} of ${view.checkpoints.length}: ${current.title}` : "No checkpoint verified yet"}</p>
-        {current && <p>Last verified: {current.title}</p>}
-        {current?.description && <p>{current.description}</p>}
-        {draft.setup && <p><button type="button" data-moments-values aria-label="Run values" onClick={openValues}>Run values · {draft.summary}</button>{draft.changed && <span> Draft changes</span>}</p>}
-        {draft.unavailable && <p>Run values are unavailable because their definition does not match this session.</p>}
-        <p role="status">{status}</p>
-        {view.failure && (view.failure.detail
-          ? <p role="alert">{failedTitle ? `Checkpoint "${failedTitle}" failed` : "Failed"} at {view.failure.stage}: {view.failure.detail}</p>
-          : <p role="alert">Needs attention: {view.failure.stage}{view.failure.checkpointId ? ` at ${view.failure.checkpointId}` : ""}.</p>)}
-        {view.failure?.evidence && <p>Evidence: <code>{view.failure.evidence}</code></p>}
-        {view.message && <p role="alert">{view.message}</p>}
-        <div className="moments-package__row">
-          <button type="button" disabled={!allowed(view.controls.continue)} onClick={() => send({ kind: "continue" })}>Continue</button>
-          <button type="button" disabled={!allowed(view.controls.check)} onClick={() => send({ kind: "check" })}>Check this state</button>
-          <button type="button" disabled={!allowed(view.controls.end)} onClick={() => send({ kind: "end" })}>End session</button>
-        </div>
-        {next && !playing && <p>Next: {next.title}</p>}
-        <details open={standalone}>
-          <summary>Checkpoint and playback</summary>
-          <label htmlFor={`${panelId}-checkpoint`}>Checkpoint</label>
-          <select id={`${panelId}-checkpoint`} value={selectedId} onChange={event => {
-            setSelection({ ...(view.runRef ? { runRef: view.runRef } : {}), id: event.target.value });
-            setConfirmation(undefined);
-          }}>
-            {view.checkpoints.map(point => <option key={point.id} value={point.id}>{point.title} ({point.status.replaceAll("-", " ")})</option>)}
-          </select>
-          {selected?.description && <p>{selected.description}</p>}
-          {selected?.opening === "fresh-run" && <p>Opening this checkpoint starts a fresh run and ends the current exploration.</p>}
-          <button type="button" ref={openButton} disabled={!allowed(openAllowed && (!playToSelection || view.controls.play))}
-            onClick={() => selected?.opening === "fresh-run" ? confirm({ kind: "open", checkpointId: selectedId })
-              : playToSelection ? send({ kind: "play", checkpointId: selectedId, pace }) : send({ kind: "open", checkpointId: selectedId })}>
-            {selected?.opening === "fresh-run" ? "Start fresh here" : playToSelection ? "Play to checkpoint" : "Open checkpoint"}
-          </button>
-          <label htmlFor={`${panelId}-pace`}>Playback pace</label>
-          <select id={`${panelId}-pace`} value={pace} onChange={event => setPace(event.target.value as PlaybackPace)}>
-            <option value="immediate">Continue immediately</option>
-            <option value="demo">Pause briefly between steps</option>
-          </select>
-          <div className="moments-package__row">
-            {playing ? <button type="button" disabled={!allowed(view.controls.pause)} onClick={() => send({ kind: "pause" })}>{playing.pauseRequested ? "Pausing…" : "Pause"}</button>
-              : <button type="button" disabled={!allowed(view.controls.play && !!last)} onClick={() => { if (last) send({ kind: "play", checkpointId: last.id, pace }); }}>Play journey</button>}
-            <button type="button" ref={restartButton} disabled={!allowed(view.controls.restart && !!selected)} onClick={() => confirm({ kind: "restart", checkpointId: selectedId })}>Restart at checkpoint</button>
-          </div>
-          <p>Pause finishes and checks the current action before stopping. Collapsing the panel keeps playback running.</p>
-        </details>
+        <p className="moments-package__checkpoint">{current ? `Checkpoint ${currentIndex + 1} of ${view.checkpoints.length}: ${current.title}` : `No checkpoint verified yet · ${passed} of ${view.checkpoints.length}`}</p>
+        <p role="status" className="moments-package__status">{status}</p>
+        {(view.failure || view.message) && <div className="moments-package__alert">
+          {view.failure && (view.failure.detail
+            ? <p role="alert"><strong>{failedTitle ? `Checkpoint "${failedTitle}" failed` : "Failed"} at {view.failure.stage}</strong><span className="moments-package__detail">{view.failure.detail}</span></p>
+            : <p role="alert"><strong>Needs attention: {view.failure.stage}{view.failure.checkpointId ? ` at ${view.failure.checkpointId}` : ""}.</strong></p>)}
+          {view.failure?.evidence && <Evidence path={view.failure.evidence} />}
+          {view.message && <p role="alert" className="moments-package__guidance">{view.message}</p>}
+        </div>}
+        <fieldset className="moments-package__steps">
+          <legend>Checkpoint</legend>
+          <ol>{view.checkpoints.map((point, index) => {
+            const chosen = point.id === selectedId, here = point.id === current?.id;
+            const state = point.id === working ? "working" : point.status;
+            return <li key={point.id} data-state={state} data-selected={chosen || undefined}>
+              <label>
+                <input type="radio" name={`${panelId}-checkpoint`} value={point.id} checked={chosen}
+                  aria-label={[point.title, state === "working" ? "in progress" : point.status.replaceAll("-", " "), here && "current", point.id === view.nextId && !working && !view.failure && "next"].filter(Boolean).join(", ")} onChange={() => {
+                  setSelection({ ...(view.runRef ? { runRef: view.runRef } : {}), id: point.id });
+                  setConfirmation(undefined);
+                }} />
+                <span className="moments-package__mark" aria-hidden="true">{state === "passed" ? "✓" : state === "failed" ? "!" : state === "skipped" ? "–" : index + 1}</span>
+                <span className="moments-package__title">{point.title}
+                  {here && <span className="moments-package__tag">Current</span>}
+                  {point.id === view.nextId && !working && !view.failure && <span className="moments-package__tag" data-next>Next</span>}
+                </span>
+              </label>
+              {chosen && <div className="moments-package__detailpane">
+                {point.description && <p>{point.description}</p>}
+                {point.opening === "fresh-run" && <p className="moments-package__hint">Opening this checkpoint starts a fresh run and ends the current exploration.</p>}
+                <div className="moments-package__row">
+                  <button type="button" ref={openButton} data-tone={selected?.opening === "fresh-run" ? "caution" : undefined}
+                    disabled={!allowed(openAllowed && (!playToSelection || view.controls.play))}
+                    onClick={() => selected?.opening === "fresh-run" ? confirm({ kind: "open", checkpointId: selectedId })
+                      : playToSelection ? send({ kind: "play", checkpointId: selectedId, pace }) : send({ kind: "open", checkpointId: selectedId })}>
+                    {selected?.opening === "fresh-run" ? "Start fresh here" : playToSelection ? "Play to checkpoint" : "Open checkpoint"}
+                  </button>
+                  <button type="button" className="moments-package__quiet" data-tone="caution" ref={restartButton} disabled={!allowed(view.controls.restart && !!selected)} onClick={() => confirm({ kind: "restart", checkpointId: selectedId })}>Restart at checkpoint</button>
+                </div>
+              </div>}
+            </li>;
+          })}</ol>
+        </fieldset>
         {confirmed && <div className="moments-package__confirmation" role="group" aria-label="Confirm fresh run">
           <p>Start a fresh run at {selected?.title}? This ends the current run. Your exploration will not carry over.{view.journey.restartExplanation && ` ${view.journey.restartExplanation}`}{draft.changed && " Your unapplied value changes will be discarded."}</p>
           <div className="moments-package__row">
-            <button type="button" disabled={!allowed(view.controls.restart)} onClick={() => { setConfirmation(undefined); void submit(confirmed.intent); }}>Start fresh</button>
+            <button type="button" data-tone="caution" disabled={!allowed(view.controls.restart)} onClick={() => { setConfirmation(undefined); void submit(confirmed.intent); }}>Start fresh</button>
             <button type="button" ref={cancelButton} onClick={draft.changed ? openValues : dismissConfirmation}>{draft.changed ? "Back to values" : "Keep exploring"}</button>
           </div>
         </div>}
-        <details open={standalone}>
+        {draft.setup && <p><button type="button" className="moments-package__quiet" data-moments-values aria-label="Run values" onClick={openValues}>Run values · {draft.summary}</button>{draft.changed && <span className="moments-package__tag">Draft changes</span>}</p>}
+        {draft.unavailable && <p>Run values are unavailable because their definition does not match this session.</p>}
+        <details>
           <summary>Session details</summary>
           <dl>
             <dt>Run reference</dt><dd><code>{view.runRef ?? "Preparing"}</code></dd>
             <dt>Activity</dt><dd>{view.activity.replaceAll("-", " ")}</dd>
-            <dt>Last verified</dt><dd>{view.lastVerified?.at ?? "Not checked"}</dd>
+            <dt>Last verified</dt><dd>{view.lastVerified ? <time dateTime={view.lastVerified.at}>{new Date(view.lastVerified.at).toLocaleTimeString()}</time> : "Not checked"}</dd>
           </dl>
-          <ol>{view.checkpoints.map(point => <li key={point.id}>{point.title}: {point.status.replaceAll("-", " ")}</li>)}</ol>
           {draft.setup && <><p>Export checkpoint: {(current ?? view.checkpoints[0])?.title}</p>
             <p>Includes active autofill values. Manual product edits and draft changes are not included.</p>
             <button type="button" onClick={draft.exportCurrent}>Export run setup</button>
@@ -222,11 +238,45 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
         </details>
       </>}
       {!standalone && <p className="moments-package__hint">Escape collapses the panel. Alt + Shift + M opens it.</p>}
-      </div>}
-      {sending && <p role="status">{mode === "review" ? "Starting a new run…" : "Sending action…"}</p>}
-      {message && <p role="alert">{message}</p>}
+      </div>
+      {view && <footer className="moments-package__footer">
+        <div className="moments-package__row">
+          <button type="button" data-tone="primary" disabled={!allowed(view.controls.continue)} onClick={() => send({ kind: "continue" })}>Continue</button>
+          <button type="button" disabled={!allowed(view.controls.check)} onClick={() => send({ kind: "check" })}>Check this state</button>
+          {playing ? <button type="button" disabled={!allowed(view.controls.pause)} onClick={() => send({ kind: "pause" })}>{playing.pauseRequested ? "Pausing…" : "Pause"}</button>
+            : <button type="button" disabled={!allowed(view.controls.play && !!last)} onClick={() => { if (last) send({ kind: "play", checkpointId: last.id, pace }); }}>Play journey</button>}
+        </div>
+        <div className="moments-package__row moments-package__row--split">
+          <fieldset className="moments-package__pace">
+            <legend>Playback pace</legend>
+            {([["immediate", "Straight through"], ["demo", "With pauses"]] as const).map(([value, text]) =>
+              <label key={value}><input type="radio" name={`${panelId}-pace`} value={value} checked={pace === value} onChange={() => setPace(value)} />{text}</label>)}
+          </fieldset>
+          <button type="button" className="moments-package__quiet" data-tone="end" disabled={!allowed(view.controls.end)} onClick={() => send({ kind: "end" })}>End session</button>
+        </div>
+      </footer>}
+      </>}
+      {sending && <p role="status" className="moments-package__sending">{mode === "review" ? "Starting a new run…" : "Sending action…"}</p>}
+      {message && <p role="alert" className="moments-package__alert">{message}</p>}
     </section>}
-    {collapsed && <button type="button" ref={launcher} aria-expanded={false} aria-controls={panelId} onClick={() => display(false)}>Show Moments</button>}
-    {collapsed && playing && <button type="button" disabled={!allowed(view?.controls.pause)} onClick={() => send({ kind: "pause" })}>{playing.pauseRequested ? "Pausing…" : "Pause"}</button>}
+    {collapsed && <div className="moments-package__launcher" data-tone={tone}>
+      <button type="button" ref={launcher} aria-expanded={false} aria-controls={panelId} onClick={() => display(false)}><span className="moments-package__dot" aria-hidden="true" />Show Moments</button>
+      {playing && <button type="button" disabled={!allowed(view?.controls.pause)} onClick={() => send({ kind: "pause" })}>{playing.pauseRequested ? "Pausing…" : "Pause"}</button>}
+    </div>}
   </aside>;
+}
+
+type Tone = "ready" | "working" | "waiting" | "attention" | "done" | "idle";
+
+/** A local file path the reviewer opens by hand; it never leaves this machine. */
+function Evidence({ path }: { path: string }) {
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => setCopied("idle"), [path]);
+  return <div className="moments-package__evidence">
+    <span>Evidence</span>
+    <code title={path}>{path.split("/").at(-1)}</code>
+    <button type="button" className="moments-package__quiet" onClick={() => navigator.clipboard.writeText(path).then(() => setCopied("copied"), () => setCopied("failed"))}>
+      {copied === "copied" ? "Copied" : "Copy path"}</button>
+    {copied === "failed" && <code className="moments-package__path">{path}</code>}
+  </div>;
 }
