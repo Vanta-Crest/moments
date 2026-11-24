@@ -34,3 +34,39 @@ jobs:
           path: |
             .release/*.tgz
             examples/task-app/.proof/**
+  # Core behaviour on every supported platform and Node line. The full example proof above covers the browser path.
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+        node: ['22', '24', '26']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: node scripts/cli-proof.mjs
+  # The managed browser, recording and panel on macOS as well as Linux.
+  example-macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run build
+      - run: mkdir .release && npm pack --pack-destination .release
+      - run: npm install --prefix examples/task-app --no-save ./.release/*.tgz
+      - run: npm run build --prefix examples/task-app
+      - run: MOMENTS_TARBALL="$(realpath .release/*.tgz)" npm run proof --prefix examples/task-app

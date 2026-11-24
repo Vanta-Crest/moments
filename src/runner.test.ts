@@ -7,6 +7,8 @@ import type { Page } from '@playwright/test';
 import { openWithBrowser } from './runner.js';
 import type { MomentResult, MomentSession, JourneyDriver } from './types.js';
 import { MomentSetupError, validateSetupValues, type MomentSetup, type SetupDefinition } from './setup.js';
+// Group and other permission bits. Windows has none: files there are private to the user's profile.
+const groupOther = process.platform === 'win32' ? 0 : 0o077;
 test('End during replacement admission prevents fresh acquisition', async () => {
     const admitted = latch(), gate = latch();
     let admissions = 0, browsers = 0, drivers = 0;
@@ -582,9 +584,9 @@ test('a failed stage keeps local evidence and the receipt only a relative path t
         assert.match(text, /Call log: waiting for getByRole/);
         const png = join(root, 'evidence', failed!.runRef, 'enter-second.png');
         assert.equal(await readFile(png, 'utf8'), 'png');
-        assert.equal((await stat(png)).mode & 0o077, 0);
-        assert.equal((await stat(join(root, 'evidence', failure.evidence!))).mode & 0o077, 0);
-        assert.equal((await stat(join(root, 'evidence', failed!.runRef))).mode & 0o077, 0);
+        assert.equal((await stat(png)).mode & groupOther, 0);
+        assert.equal((await stat(join(root, 'evidence', failure.evidence!))).mode & groupOther, 0);
+        assert.equal((await stat(join(root, 'evidence', failed!.runRef))).mode & groupOther, 0);
         assert.ok(!JSON.stringify(receipt).includes('Save'), 'The receipt carries no thrown message');
     } finally {
         await rm(root, { recursive: true, force: true });

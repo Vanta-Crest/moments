@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Group and other permission bits. Windows has none: files there are private to the user's profile.
+const groupOther = process.platform === 'win32' ? 0 : 0o077;
 
 // Run against the built executable, or supply the installed package's dist/cli.js.
 const cli = resolve(process.argv[2] ?? fileURLToPath(new URL('../dist/cli.js', import.meta.url)));
@@ -50,12 +52,12 @@ try {
     const receiptFiles = async () => (await readdir(receiptDir)).filter(file => file !== 'latest.json');
     const receipts = await receiptFiles();
     assert.equal(receipts.length, 2, 'Default output resolves beside the explicit config, not caller cwd');
-    assert.equal((await stat(receiptDir)).mode & 0o077, 0);
+    assert.equal((await stat(receiptDir)).mode & groupOther, 0);
     for (const file of receipts) {
         const result = JSON.parse(await readFile(join(receiptDir, file), 'utf8'));
         assert.equal(result.outcome, 'incomplete');
         assert.equal(result.cleanup, 'complete');
-        assert.equal((await stat(join(receiptDir, file))).mode & 0o077, 0);
+        assert.equal((await stat(join(receiptDir, file))).mode & groupOther, 0);
     }
     await assert.rejects(stat(join(child, '.moments')), { code: 'ENOENT' });
     const setup = { formatVersion: 1, journeyId: 'task.flow', checkpointId: 'draft',
@@ -118,7 +120,7 @@ try {
     assert.match(failed.stdout + failed.stderr, /passed\s+Draft\n\s+failed\s+Saved\n/);
     assert.doesNotMatch(failed.stdout + failed.stderr, /Done/, 'Checkpoints beyond the target are not listed');
     const latest = JSON.parse(await readFile(join(receiptDir, 'latest.json'), 'utf8'));
-    assert.equal((await stat(join(receiptDir, 'latest.json'))).mode & 0o077, 0);
+    assert.equal((await stat(join(receiptDir, 'latest.json'))).mode & groupOther, 0);
     assert.equal(latest.outcome, 'incomplete');
     assert.equal(latest.receipt, join(receiptDir, `${latest.runRef}.json`));
     const failedReceipt = JSON.parse(await readFile(latest.receipt, 'utf8'));

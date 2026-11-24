@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile, realpath, stat } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Group and other permission bits. Windows has none: files there are private to the user's profile.
+const groupOther = process.platform === 'win32' ? 0 : 0o077;
 
 // Start this finite harness with the repository's host-process guard. Children
 // stay in that owned process group; no detached process or shared server is used.
@@ -94,7 +96,7 @@ try {
           const receiptPath = join(receipts, file);
           const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
           assert.equal(receipt.activity, 'closed'); assert.equal(receipt.cleanup, 'complete');
-          assert.equal((await stat(receiptPath)).mode & 0o077, 0, 'Receipt is private');
+          assert.equal((await stat(receiptPath)).mode & groupOther, 0, 'Receipt is private');
           assert.deepEqual(await api(`/api/tasks?runRef=${receipt.runRef}`), []);
         }
         assert.deepEqual(await api('/api/tasks?runRef=foreign-proof-record'), [foreign]);
@@ -112,7 +114,7 @@ try {
       const receiptPath = join(receipts, file);
       const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
       assert.equal(receipt.activity, 'closed'); assert.equal(receipt.cleanup, 'complete');
-      assert.equal((await stat(receiptPath)).mode & 0o077, 0, 'Receipt is private');
+      assert.equal((await stat(receiptPath)).mode & groupOther, 0, 'Receipt is private');
       assert.equal(receipt.outcome, expectedCode === 0 ? 'complete' : 'incomplete');
       assert.deepEqual(await api(`/api/tasks?runRef=${receipt.runRef}`), []);
       collected.push(receipt);
@@ -163,7 +165,7 @@ try {
       assert.match(result.stdout, /passed\s+Empty draft\n\s+failed\s+Task created\n/);
       assert.match(await readFile(evidenceFile, 'utf8'), /^URL: http:\/\/127\.0\.0\.1:\d+\/\?run=/m);
       for (const file of [evidenceFile, evidenceFile.replace(/\.txt$/, '.png')]) {
-        assert.ok((await stat(file)).size > 0); assert.equal((await stat(file)).mode & 0o077, 0, 'Evidence is private');
+        assert.ok((await stat(file)).size > 0); assert.equal((await stat(file)).mode & groupOther, 0, 'Evidence is private');
       }
       const latest = JSON.parse(await readFile(join(receipts, 'latest.json'), 'utf8'));
       assert.deepEqual(latest, { runRef: receipt.runRef, receipt: join(receipts, `${receipt.runRef}.json`), outcome: 'incomplete', evidence: evidenceFile });
@@ -178,7 +180,7 @@ try {
       assert.deepEqual(observed.map(event => event.at), receipt.observations.map(item => item.at), 'Timeline marks carry the receipt times');
       for (const file of [...timeline.segments.map(segment => segment.file), ...observed.map(event => event.frame), 'timeline.json']) {
         const info = await stat(join(recording, file));
-        assert.ok(info.size > 0); assert.equal(info.mode & 0o077, 0, 'Recording is private');
+        assert.ok(info.size > 0); assert.equal(info.mode & groupOther, 0, 'Recording is private');
       }
       assert.match(result.stderr, /\d:\d\d  verified    Task created\n/);
       report.assertions.push(`${name}: private video, timeline and checkpoint frames match the receipt; latest.json points at them; progress lines printed`);
