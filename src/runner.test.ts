@@ -805,3 +805,30 @@ test('a step journey adopts progress made by hand and never repeats it', async (
     assert.equal(s.view().checkpoints.find(p => p.id === 'c')?.observed?.provenance, 'manual');
     await s.end();
 });
+test('a catalogue selection hands over to a new run and both receipts are kept', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moments-selection-'));
+    try {
+        const driver: JourneyDriver = { enter: async () => {}, verify: async () => {}, reconcile: async () => 'first', cleanup: async () => 'complete' };
+        const entry = (target: string) => ({ target, title: target, group: 'Tasks', purpose: '', viewpoints: [], expectedObservation: '',
+            prerequisites: [], cleanup: '', availability: { kind: 'available' as const } });
+        const s = await openWithBrowser({
+            baseURL: 'http://localhost:3000', beforeRun: async () => {}, outputDir: join(root, 'runs'), evidenceDir: false,
+            journeys: [{ id: 'journey', title: 'Journey', checkpoints: [{ id: 'first', title: 'First' }, { id: 'second', title: 'Second' }], create: () => driver }],
+            catalogue: { view: { runtimeRef: 'rt', scopeLabel: 'Local', entries: [entry('journey.second')] }, admit: async () => {} }
+        }, { target: 'journey.first' }, async () => ({ page: {} as Page, close: async () => {} }));
+        await s.settled();
+        const from = s.view().runRef!, view = s.view();
+        assert.deepEqual(s.command({ runRef: from, revision: view.revision, command: { kind: 'select', requestRef: '6f1d2c3e-4b5a-4c7d-8e9f-0a1b2c3d4e5f', target: 'journey.second' } }), { accepted: true });
+        await s.settled();
+        const to = s.view().runRef!;
+        assert.notEqual(to, from);
+        assert.equal(s.view().selection?.phase, 'started');
+        for (const runRef of [from, to]) {
+            const receipt = JSON.parse(await readFile(join(root, 'runs', `${runRef}.json`), 'utf8')) as MomentResult;
+            assert.deepEqual([receipt.selection?.fromRunRef, receipt.selection?.toRunRef], [from, to]);
+        }
+        await s.end();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});

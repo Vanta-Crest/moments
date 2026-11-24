@@ -24,7 +24,7 @@ export function validateResult(r: MomentResult): void {
     if (r.selection !== undefined) {
         const s = r.selection;
         if (!s || !exact(s, ['requestRef', 'fromRunRef', 'toRunRef', 'target', 'phase']) || ![s.requestRef, s.fromRunRef, s.toRunRef].every(id)
-            || s.toRunRef !== r.runRef || typeof s.target !== 'string' || !['requested', 'cleaning', 'blocked', 'starting', 'started'].includes(s.phase))
+            || s.fromRunRef === s.toRunRef || ![s.fromRunRef, s.toRunRef].includes(r.runRef) || typeof s.target !== 'string' || !['requested', 'cleaning', 'blocked', 'starting', 'started'].includes(s.phase))
             throw Error('Invalid Moments selection');
     }
     if (r.replacementRequested !== undefined) {
