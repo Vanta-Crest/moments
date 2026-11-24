@@ -90,7 +90,7 @@ try {
       // Keep the original browser failure primary, while still verifying and
       // recording cleanup independently of successful-scenario receipt counts.
       try {
-        const failedReceipts = (await readdir(receipts)).filter(file => file.endsWith('.json') && file !== 'latest.json');
+        const failedReceipts = (await readdir(receipts)).filter(file => file.endsWith('.json') && !file.endsWith('.manifest.json') && file !== 'latest.json');
         assert.ok(failedReceipts.length > 0, 'Failed scenario retains cleanup receipts');
         for (const file of failedReceipts) {
           const receiptPath = join(receipts, file);
@@ -107,7 +107,7 @@ try {
       throw Error(`${name}: ${interactiveProof.error || 'Interactive scenario did not pass'}`);
     }
     assert.equal(result.code, expectedCode, `${name}: ${result.stderr}`);
-    const files = (await readdir(receipts)).filter(file => file.endsWith('.json') && file !== 'latest.json');
+    const files = (await readdir(receipts)).filter(file => file.endsWith('.json') && !file.endsWith('.manifest.json') && file !== 'latest.json');
     assert.equal(files.length, scenario === 'controls' ? 2 : 1);
     const collected = [];
     for (const file of files) {
@@ -168,7 +168,8 @@ try {
         assert.ok((await stat(file)).size > 0); assert.equal((await stat(file)).mode & groupOther, 0, 'Evidence is private');
       }
       const latest = JSON.parse(await readFile(join(receipts, 'latest.json'), 'utf8'));
-      assert.deepEqual(latest, { runRef: receipt.runRef, receipt: join(receipts, `${receipt.runRef}.json`), outcome: 'incomplete', evidence: evidenceFile });
+      assert.deepEqual(latest, { runRef: receipt.runRef, receipt: join(receipts, `${receipt.runRef}.json`), outcome: 'incomplete', evidence: evidenceFile,
+        manifest: join(receipts, `${receipt.runRef}.manifest.json`) });
       report.assertions.push('once-failure: CLI names the checkpoint, message and private evidence (URL, screenshot); latest.json points at the run');
     }
     if (args.includes('--record')) {
@@ -184,6 +185,22 @@ try {
       }
       assert.match(result.stderr, /\d:\d\d  verified    Task created\n/);
       report.assertions.push(`${name}: private video, timeline and checkpoint frames match the receipt; latest.json points at them; progress lines printed`);
+      // The record a reviewer receives: what system, fingerprints that still match, and a run sheet with each frame.
+      assert.equal(receipt.environment, 'Task app example, local');
+      assert.equal(receipt.origin, new URL(baseURL).origin);
+      const inspect = async (command, code) => {
+        const child = await bounded(start(cli, [command, receipt.runRef, '--config', config], { cwd: unrelatedCwd, env: { ...process.env, TASK_APP_URL: baseURL, MOMENTS_OUTPUT_DIR: receipts } }).done);
+        assert.equal(child.code, code, `${command}: ${child.stdout}${child.stderr}`);
+        return child.stdout;
+      };
+      const files = 1 + timeline.segments.length + observed.length + 1;
+      assert.match(await inspect('verify', 0), new RegExp(`all ${files} files match the manifest`));
+      const sheet = /Run sheet: (.+)\n/.exec(await inspect('report', 0))[1];
+      const html = await readFile(sheet, 'utf8');
+      assert.equal((await stat(sheet)).mode & groupOther, 0, 'Run sheet is private');
+      assert.equal((html.match(/<img /g) ?? []).length, observed.length, 'One frame per verified checkpoint');
+      assert.match(html, /Task app example, local/);
+      report.assertions.push(`${name}: receipt names the system; manifest verifies all files; run sheet is private with one frame per verified checkpoint`);
     }
     if (scenario === 'signal') assert.ok(receipt.failures.some(item => item.code === 'interrupted'));
     report.assertions.push(`${name}: closed receipt, private file, owned cleanup, foreign record preserved`);

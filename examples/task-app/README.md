@@ -1,9 +1,10 @@
 # Task app
 
 A complete local example: React UI, real HTTP backend, JSON persistence, and three
-ordered checkpoints. It needs no cloud account, credentials, or provider.
+ordered checkpoints written with `defineStepJourney` (`journey.ts`). It needs no cloud
+account, credentials, or provider.
 
-Use Node 24. From this example directory:
+Use Node 22 or newer. From this example directory:
 
 ```sh
 npm install
@@ -19,6 +20,8 @@ npm run moments -- list
 npm run moments -- open task.draft
 npm run moments -- open task.created --once
 npm run moments -- open task.completed --once
+npm run moments -- verify
+npm run moments -- report
 ```
 
 The example installs `@vanta-crest/moments` from npm. To try an unreleased
@@ -26,7 +29,11 @@ checkout, pack it (`npm pack` in the repository root) and run
 `npm install --no-save <tarball>` here. Use the same version for the CLI and app.
 
 `npm run moments -- open task.completed --once --record --chapters` films the run;
-`Recording:` names the private folder holding the video.
+`Recording:` names the private folder holding the video. See the
+[recording guide](../../docs/guides/recording.md).
+
+The config labels the system `Task app example, local`; that label appears in every
+receipt, the panel and the run sheet.
 
 A draft starts with no records and an empty input. Created submits the form;
 completed clicks the real completion button. Verification reads the backend and
@@ -63,7 +70,8 @@ The proof launches the installed CLI from an unrelated directory, uses an
 explicit TypeScript config, and exercises the CLI-owned real Playwright browser.
 It covers list, all one-shot checkpoints, failed one-shot verification, manual
 adoption through the panel, destination verification retry without duplicate
-creation, SIGTERM, private receipts, and cleanup isolation. The server's fault
+creation, SIGTERM, private receipts, cleanup isolation, a recorded run, `verify` and
+the run sheet. The server's fault
 endpoint is present only with `TASK_APP_PROOF=1`; a fault blocks independent
 verification reads while ordinary product writes and reads remain real.
 

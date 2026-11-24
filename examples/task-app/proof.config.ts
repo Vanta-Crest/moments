@@ -204,14 +204,19 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
         await confirmation.waitFor({ state: 'hidden' });
         assert.equal((await page.evaluate(() => window.moments!.read())).runRef, runRef);
         assertions.push('Fresh-run cancellation preserves the run; an actual runner revision change invalidates pending confirmation');
+        // An earlier checkpoint offers one action, Start fresh here; the current one offers Restart.
+        await checkpoint('Task completed').check();
+        assert.equal(await panel.getByRole('button', { name: 'Start fresh here', exact: true }).count(), 0);
         await panelButton('Restart at checkpoint');
         await confirmation.waitFor();
         await panelButton('Keep exploring');
         assert.equal(await confirmation.count(), 0);
         assert.equal((await page.evaluate(() => window.moments!.read())).runRef, runRef);
         assert.equal((await state()).length, 1);
-        assertions.push('Restart at the selected native checkpoint requires confirmation; cancellation preserves the current task');
-        await panelButton('Restart at checkpoint');
+        assertions.push('Restart at the current checkpoint requires confirmation; cancellation preserves the current task');
+        await checkpoint('Empty draft').check();
+        assert.equal(await panel.getByRole('button', { name: 'Restart at checkpoint', exact: true }).count(), 0);
+        await panelButton('Start fresh here');
         await confirmation.waitFor();
         await page.evaluate(`(() => {
           const proof = window;
@@ -250,8 +255,8 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
         assert.deepEqual(await state(), completed);
         await confirmation.waitFor({ state: 'hidden' });
         await page.evaluate(() => { const proof = window as ProofWindow; window.moments = proof.proofBridge; });
-        assertions.push('Actual Check inside confirmed Restart preflight changes revision; hook refuses submission, replacement and predecessor cleanup');
-        await panelButton('Restart at checkpoint');
+        assertions.push('Actual Check inside confirmed fresh-run preflight changes revision; hook refuses submission, replacement and predecessor cleanup');
+        await panelButton('Start fresh here');
         await confirmation.waitFor();
         await panelButton('Start fresh');
         await expect.poll(async () => {
@@ -270,13 +275,13 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
         assert.equal(page.context().browser()?.isConnected(), false, 'Confirmed restart closes the predecessor browser');
         assert.ok((await stat(proofRun.tracePath)).size > 0, 'Predecessor trace flushes before context closure');
         assert.deepEqual(await state(activeRun, runRef), []);
-        assertions.push('Confirmed restart closes the predecessor page/browser and retains its flushed context trace before the replacement is observed');
+        assertions.push('Confirmed fresh run closes the predecessor page/browser and retains its flushed context trace before the replacement is observed');
         await panelButton('Continue', activeRun);
         await settled('ready', 'created', activeRun);
         const replacementState = await state(activeRun);
         assert.equal(replacementState.length, 1); assert.equal(replacementState[0].completed, false);
         assert.equal(replacementState[0].runRef, replacement);
-        assertions.push('A newly reviewed confirmed Restart cleans predecessor tasks and creates one independently verified task owned by the new run');
+        assertions.push('A newly reviewed confirmed fresh run cleans predecessor tasks and creates one independently verified task owned by the new run');
       } else if (scenario === 'director') {
         const director = controlPage(proofRun);
         assert.equal(await page.evaluate(() => typeof window.moments), 'undefined');
