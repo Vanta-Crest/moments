@@ -93,7 +93,7 @@ export type OpenMomentOptions = {
     /** Verify each checkpoint before entering it; a passing one is recorded `existing` and not entered. */
     resume?: boolean;
     signal?: AbortSignal;
-    /** Record the run (video, `timeline.json`, a PNG per verified checkpoint) under `<evidenceDir>/<runRef>/recording`. A recording failure never fails the run. */
+    /** Record the run (video, `timeline.json`, the frame at each verified checkpoint) under `<evidenceDir>/<runRef>/recording`. A recording failure never fails the run. */
     record?: { chapters?: boolean };
     /** Told as the run enters a checkpoint, observes one, or starts or ends a reported wait. */
     onEvent?(event: MomentEvent): void;

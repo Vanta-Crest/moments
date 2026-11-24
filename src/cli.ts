@@ -25,7 +25,7 @@ Open uses a headed browser; use End (panel or Moments Director) or close a Momen
 --output writes receipts and latest.json to <dir> (relative to the current directory)
          for this run; failure evidence goes to <dir>/../evidence unless evidenceDir is set.
 --record films the run privately beside its failure evidence: a WebM per stretch between
-         private checkpoints, timeline.json, and a PNG at each verified checkpoint.
+         private checkpoints, timeline.json, and the frame at each verified checkpoint.
          latest.json points at it. A recording failure never fails the run.
 --chapters draws each checkpoint's title into the recording as it is verified.
 Progress lines go to stderr as each checkpoint is entered and verified.

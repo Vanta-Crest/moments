@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import type { JourneyDefinition, MomentEvent } from './types.js';
 
-/** Layout size while recording. Pixels are doubled so the video and frames stay sharp at 1080p. */
+/** Layout size while recording. Pixels are doubled so the 1080p video stays sharp. */
 export const RECORDING_VIEWPORT = { width: 1280, height: 720 } as const;
 const VIDEO_SIZE = { width: 1920, height: 1080 } as const;
 const CHAPTER_MS = 2_000;
@@ -11,13 +11,14 @@ type Mark = MomentEvent & { segment?: number; offsetMs?: number; frame?: string 
 export type Recorder = { observe(event: MomentEvent): Promise<void>; finish(): Promise<void> };
 
 /**
- * Records one run into `dir`: a WebM segment per stretch between private checkpoints, a PNG at
- * each verified checkpoint, and `timeline.json` tying both to the receipt's times. Best effort:
+ * Records one run into `dir`: a WebM segment per stretch between private checkpoints, the video
+ * frame showing each verified checkpoint, and `timeline.json` tying both to the receipt's times.
+ * Frames come from the video stream: a page screenshot would disturb the recording. Best effort:
  * the first error stops recording with one warning and never reaches the run.
  */
 export function createRecorder(page: Page, dir: string, journey: JourneyDefinition, runRef: string, chapters: boolean): Recorder {
     const segments: { file: string; startedAt: string }[] = [], events: Mark[] = [], frames = new Set<string>();
-    let started: number | undefined, stoppedEarly = false, finished = false;
+    let started: number | undefined, stoppedEarly = false, finished = false, latest: Buffer | undefined;
     const checkpoint = (id: string) => journey.checkpoints.find(point => point.id === id);
     async function attempt(work: () => Promise<void>) {
         if (stoppedEarly || finished) return;
@@ -38,7 +39,8 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
                 } else if (started === undefined) {
                     await mkdir(dir, { recursive: true, mode: 0o700 });
                     const file = `segment-${segments.length + 1}.webm`;
-                    await page.screencast.start({ path: path.join(dir, file), size: VIDEO_SIZE });
+                    latest = undefined;
+                    await page.screencast.start({ path: path.join(dir, file), size: VIDEO_SIZE, onFrame: ({ data }) => { latest = data; } });
                     started = Date.now();
                     segments.push({ file, startedAt: new Date(started).toISOString() });
                 }
@@ -47,11 +49,13 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
                 : { ...event, segment: segments.length - 1, offsetMs: Math.max(0, Date.parse(event.at) - started) };
             events.push(mark);
             if (event.kind !== 'observed' || event.status !== 'passed' || started === undefined) return;
-            let frame = `${event.checkpointId}.png`;
-            for (let n = 2; frames.has(frame); n++) frame = `${event.checkpointId}-${n}.png`;
-            frames.add(frame);
-            await writeFile(path.join(dir, frame), await page.screenshot({ scale: 'device', timeout: 5_000 }), { mode: 0o600 });
-            mark.frame = frame;
+            if (latest) {
+                let frame = `${event.checkpointId}.jpg`;
+                for (let n = 2; frames.has(frame); n++) frame = `${event.checkpointId}-${n}.jpg`;
+                frames.add(frame);
+                await writeFile(path.join(dir, frame), latest, { mode: 0o600 });
+                mark.frame = frame;
+            }
             const point = checkpoint(event.checkpointId)!;
             if (chapters) await page.screencast.showChapter(point.title, { ...(point.description ? { description: point.description } : {}), duration: CHAPTER_MS });
         }),

@@ -681,11 +681,14 @@ function filmedPage(failStart = false) {
     const state = { filming: false };
     const page = {
         screencast: {
-            start: async () => { if (failStart) throw Error('encoder unavailable'); state.filming = true; },
+            start: async ({ onFrame }: { onFrame(frame: { data: Buffer }): void }) => {
+                if (failStart) throw Error('encoder unavailable');
+                state.filming = true;
+                onFrame({ data: Buffer.from('jpeg') });
+            },
             stop: async () => { state.filming = false; },
             showChapter: async () => {}
-        },
-        screenshot: async () => Buffer.from('png')
+        }
     };
     return { state, page: page as unknown as Page };
 }
@@ -711,7 +714,7 @@ test('a private checkpoint is never filmed, and filming resumes at the next chec
         assert.equal(state.filming, false);
         const timeline = JSON.parse(await readFile(join(dir, result.runRef, 'recording', 'timeline.json'), 'utf8'));
         assert.deepEqual(timeline.segments.map((s: { file: string }) => s.file), ['segment-1.webm', 'segment-2.webm']);
-        assert.deepEqual(timeline.events.flatMap((e: { frame?: string }) => e.frame ?? []), ['public.png', 'after.png']);
+        assert.deepEqual(timeline.events.flatMap((e: { frame?: string }) => e.frame ?? []), ['public.jpg', 'after.jpg']);
         // Marks carry the receipt's own observation times, so a film can be checked against the receipt.
         assert.deepEqual(timeline.events.filter((e: { kind: string }) => e.kind === 'observed').map((e: { at: string }) => e.at), result.observations.map(o => o.at));
     } finally { await rm(dir, { recursive: true, force: true }); }
