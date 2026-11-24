@@ -147,6 +147,8 @@ unknown/private keys. Structural codecs do not replace journey admission rules.
 
 `at` on an `observed` event is the receipt observation's own time. `segment` and
 `offsetMs` (milliseconds into that segment) are absent while filming is paused.
+A segment the browser closed before it was saved is listed with `lost: true`:
+in an interactive session, finish with End rather than closing the window.
 `chapterMs` is present with `--chapters`; checkpoints carry `private: true` when
 marked. `stoppedEarly: true` means a recording error stopped filming; the run
 itself was unaffected. A recording is local evidence, never part of the receipt.

@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import type { JourneyDefinition, MomentEvent } from './types.js';
@@ -17,7 +17,7 @@ export type Recorder = { observe(event: MomentEvent): Promise<void>; finish(): P
  * the first error stops recording with one warning and never reaches the run.
  */
 export function createRecorder(page: Page, dir: string, journey: JourneyDefinition, runRef: string, chapters: boolean): Recorder {
-    const segments: { file: string; startedAt: string }[] = [], events: Mark[] = [], frames = new Set<string>();
+    const segments: { file: string; startedAt: string; lost?: true }[] = [], events: Mark[] = [], frames = new Set<string>();
     let started: number | undefined, stoppedEarly = false, finished = false, latest: Buffer | undefined;
     const checkpoint = (id: string) => journey.checkpoints.find(point => point.id === id);
     async function attempt(work: () => Promise<void>) {
@@ -26,7 +26,9 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
         catch {
             stoppedEarly = true;
             started = undefined;
-            process.stderr.write('Moments: recording stopped after an error; the run continues.\n');
+            process.stderr.write(page.isClosed()
+                ? 'Moments: the browser closed while filming, so the last recording segment is lost. End the session with End to keep it.\n'
+                : 'Moments: recording stopped after an error; the run continues.\n');
             await page.screencast.stop().catch(() => { });
         }
     }
@@ -64,7 +66,11 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
             finished = true;
             try {
                 await mkdir(dir, { recursive: true, mode: 0o700 });
-                for (const segment of segments) await chmod(path.join(dir, segment.file), 0o600).catch(() => { });
+                for (const segment of segments) {
+                    const file = path.join(dir, segment.file);
+                    if (await stat(file).then(() => true, () => false)) await chmod(file, 0o600);
+                    else segment.lost = true;
+                }
                 const timeline = {
                     schemaVersion: 1, runRef, journeyId: journey.id, viewport: RECORDING_VIEWPORT, videoSize: VIDEO_SIZE,
                     ...(chapters ? { chapterMs: CHAPTER_MS } : {}), ...(stoppedEarly ? { stoppedEarly } : {}),

@@ -688,7 +688,8 @@ function filmedPage(failStart = false) {
             },
             stop: async () => { state.filming = false; },
             showChapter: async () => {}
-        }
+        },
+        isClosed: () => false
     };
     return { state, page: page as unknown as Page };
 }
