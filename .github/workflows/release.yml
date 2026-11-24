@@ -42,7 +42,8 @@ jobs:
       # A prerelease (0.3.0-rc.1) goes out as `next`, so `npm install` keeps resolving the last release.
       - name: Dist-tag
         id: dist
-        run: echo "tag=$(node -p "require('./package.json').version.includes('-') ? 'next' : 'latest'")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=$(node -p "require('./package.json').version.includes('-') ? 'next' : 'latest'")" >> "$GITHUB_OUTPUT"
       - name: Registry credentials
         run: |
           printf '@vanta-crest:registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n' > "$RUNNER_TEMP/npmjs.npmrc"
