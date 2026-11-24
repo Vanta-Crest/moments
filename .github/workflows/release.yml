@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,7 +44,7 @@ jobs:
           printf '@vanta-crest:registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n' > "$RUNNER_TEMP/npmjs.npmrc"
           printf '@vanta-crest:registry=https://npm.pkg.github.com/\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n' > "$RUNNER_TEMP/github.npmrc"
       - name: Publish to npm
-        run: npm publish ./.release/*.tgz --access public --userconfig "$RUNNER_TEMP/npmjs.npmrc"
+        run: npm publish ./.release/*.tgz --access public --provenance --userconfig "$RUNNER_TEMP/npmjs.npmrc"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # 0.3.x also goes to GitHub Packages so the move to npm can be undone; drop this after 0.3.
