@@ -21,6 +21,8 @@ export type BrowserOptions = {
     director: boolean;
     /** A fixed recording viewport instead of the window's own size. */
     record: boolean;
+    /** The page area of the application window, for presenting. */
+    window?: { width: number; height: number };
 };
 export type BrowserFactory = (options: BrowserOptions, controls: MomentControls, onClose: () => void) => Promise<OwnedBrowser>;
 export class MomentOpenError extends Error {
@@ -59,6 +61,9 @@ export async function openWithBrowser(config: MomentsConfig, options: OpenMoment
         throw Error('Invalid baseURL');
     if (config.environment !== undefined && !recordLabel(config.environment, 80))
         throw Error('Invalid environment');
+    const size = options.window;
+    if (size && (options.record || ![size.width, size.height].every(n => Number.isSafeInteger(n) && n >= 320 && n <= 3840)))
+        throw Error('Invalid window: 320 to 3840 pixels a side, and not with record, which sets its own');
     const ids = new Set<string>();
     const journeys = config.journeys.map(j => defineJourney(j));
     for (const j of journeys) {
@@ -216,7 +221,8 @@ class Session implements MomentSession {
             if (!this.browser) {
                 this.browser = await this.factory({
                     baseURL: this.config.baseURL, headless: this.options.headless ?? !!this.options.once,
-                    director: this.config.director === true && !this.options.once, record: !!this.options.record
+                    director: this.config.director === true && !this.options.once, record: !!this.options.record,
+                    ...(this.options.window ? { window: this.options.window } : {})
                 }, { read: () => this.view(), command: r => this.command(r) }, () => { void this.end(); });
                 this.pageTimeouts(this.config.navigationTimeoutMs, this.config.actionTimeoutMs);
             }

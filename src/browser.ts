@@ -60,14 +60,28 @@ async function arrangeWindows(app: Page, director: Page): Promise<void> {
         }
     }
 }
-export const openBrowser: BrowserFactory = async ({ baseURL, headless, director, record }, controls, onClose) => {
+/** Best effort, headed only: makes the page area exactly `size`, whatever the browser's own frame measures. */
+async function sizeWindow(page: Page, size: { width: number; height: number }): Promise<void> {
+    const cdp = await page.context().newCDPSession(page);
+    try {
+        const { windowId } = await cdp.send('Browser.getWindowForTarget');
+        await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
+        await cdp.send('Browser.setWindowBounds', { windowId, bounds: { width: size.width, height: size.height } });
+        const inner = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        await cdp.send('Browser.setWindowBounds', { windowId, bounds: { width: 2 * size.width - inner.width, height: 2 * size.height - inner.height } });
+    }
+    finally {
+        await cdp.detach();
+    }
+}
+export const openBrowser: BrowserFactory = async ({ baseURL, headless, director, record, window: size }, controls, onClose) => {
     const browser = await chromium.launch({
         headless, handleSIGINT: false, handleSIGTERM: false
     });
     let closing = false;
     try {
         const context = await browser.newContext({
-            baseURL, ...(record ? { viewport: RECORDING_VIEWPORT, deviceScaleFactor: 2 } : !headless ? { viewport: null } : {})
+            baseURL, ...(record ? { viewport: RECORDING_VIEWPORT, deviceScaleFactor: 2 } : !headless ? { viewport: null } : size ? { viewport: size } : {})
         });
         let ownedPage: Page | undefined;
         const origin = new URL(baseURL).origin;
@@ -88,6 +102,8 @@ export const openBrowser: BrowserFactory = async ({ baseURL, headless, director,
             if (!headless)
                 await arrangeWindows(page, panel).catch(() => { });
         }
+        if (size && !headless)
+            await sizeWindow(page, size).catch(() => { });
         return {
             page, focus: () => page.bringToFront(), close: async () => {
                 closing = true;

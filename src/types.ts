@@ -107,6 +107,8 @@ export type OpenMomentOptions = {
     signal?: AbortSignal;
     /** Record the run (video, `timeline.json`, the frame at each verified checkpoint) under `<evidenceDir>/<runRef>/recording`. A recording failure never fails the run. */
     record?: { chapters?: boolean };
+    /** Size the application window's page area, for presenting. Not with `record`, which fixes its own. */
+    window?: { width: number; height: number };
     /** Told as the run enters a checkpoint, observes one, or starts or ends a reported wait. */
     onEvent?(event: MomentEvent): void;
 };

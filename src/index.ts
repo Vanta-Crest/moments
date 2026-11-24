@@ -4,6 +4,7 @@ import type { MomentsConfig, OpenMomentOptions } from './types.js';
 export { defineJourney, MomentOpenError } from './runner.js';
 export { defineConfig } from './config.js';
 export { furthestVerified } from './reconcile.js';
+export { defineStepJourney, type Step } from './steps.js';
 export type * from './types.js';
 export * from './setup.js';
 export function openMoment(config: MomentsConfig, options: OpenMomentOptions) { return openWithBrowser(config, options, openBrowser); }

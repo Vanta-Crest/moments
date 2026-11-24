@@ -49,7 +49,7 @@ try {
     run(['open', 'task.flow.draft', '--once'], plain, 1, 'The message is in ');
     run(['open', 'task.flow.draft', '--once', '--config', '../moments.config.ts'], child, 1, 'needs attention at admission');
     const receiptDir = join(plain, '.moments', 'runs');
-    const receiptFiles = async () => (await readdir(receiptDir)).filter(file => file !== 'latest.json');
+    const receiptFiles = async () => (await readdir(receiptDir)).filter(file => file.endsWith('.json') && file !== 'latest.json' && !file.endsWith('.manifest.json'));
     const receipts = await receiptFiles();
     assert.equal(receipts.length, 2, 'Default output resolves beside the explicit config, not caller cwd');
     assert.equal((await stat(receiptDir)).mode & groupOther, 0);
@@ -128,6 +128,19 @@ try {
     assert.equal(latest.evidence, join(plain, '.moments', 'evidence', failedReceipt.failures[0].evidence));
     assert.ok((failed.stdout + failed.stderr).includes(`(evidence: ${latest.evidence})`));
     assert.ok((await stat(latest.evidence.replace(/\.txt$/, '.png'))).size > 0, 'A screenshot sits beside the message');
+    // The manifest fingerprints the receipt and the evidence; verify reports any change, report writes a private sheet.
+    assert.equal(latest.manifest, join(receiptDir, `${latest.runRef}.manifest.json`));
+    run(['verify'], plain, 0, 'all 3 files match the manifest');
+    const sheet = run(['report', latest.runRef], plain, 0, 'review it before sharing');
+    const html = sheet.stdout.match(/Run sheet: (.+)\n/)[1];
+    assert.equal((await stat(html)).mode & groupOther, 0);
+    assert.match(await readFile(html, 'utf8'), /<h1>Tasks<\/h1>[\s\S]*Failed/);
+    await writeFile(latest.evidence, 'edited\n');
+    await writeFile(join(plain, '.moments', 'evidence', latest.runRef, 'added.txt'), 'new\n');
+    const tampered = run(['verify', latest.runRef], plain, 1, '2 of 4 files differ');
+    assert.match(tampered.stdout, /changed\s+\.\.\/evidence\/.+\/enter-saved\.txt\n/);
+    assert.match(tampered.stdout, /added\s+\.\.\/evidence\/.+\/added\.txt\n/);
+    run(['verify', '../escape'], plain, 2, 'run reference');
     // --output keeps parallel runs of one shared config apart; evidence follows it.
     run(['open', 'task.flow.saved', '--once', '--config', '../failing.ts', '--output', 'lane-a'], child, 1, 'failed at enter');
     const laneLatest = JSON.parse(await readFile(join(child, 'lane-a', 'latest.json'), 'utf8'));

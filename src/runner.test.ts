@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { openWithBrowser } from './runner.js';
+import { defineStepJourney } from './steps.js';
 import type { MomentResult, MomentSession, JourneyDriver } from './types.js';
 import { MomentSetupError, validateSetupValues, type MomentSetup, type SetupDefinition } from './setup.js';
 // Group and other permission bits. Windows has none: files there are private to the user's profile.
@@ -785,4 +786,22 @@ test('the receipt names the system, the actors and what each checkpoint proves',
     assert.ok(receipts.length > 0);
     await assert.rejects(openWithBrowser({ baseURL: 'http://127.0.0.1:4177', beforeRun: async () => {},
         journeys: [{ ...journey, checkpoints: [{ id: 'first', title: 'First', covers: ['AJ 07'] }] }] }, { target: 'evidence.first', once: true }, async () => ({ page: evidencePage(), close: async () => {} })), /Invalid checkpoint/);
+});
+test('a step journey adopts progress made by hand and never repeats it', async () => {
+    let at = 0; const entered: string[] = [];
+    const step = (index: number, id: string) => ({ enter: async () => { entered.push(id); at = index; },
+        verify: async () => { if (at < index) throw Error(`${id} is not on screen`); } });
+    const journey = defineStepJourney({ id: 'steps', title: 'Steps', checkpoints: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' }],
+        create: () => ({ steps: { a: step(0, 'a'), b: step(1, 'b'), c: step(2, 'c') }, cleanup: async () => 'complete' as const }) });
+    const s = await openWithBrowser({ baseURL: 'http://localhost:3000', beforeRun: async () => {}, journeys: [journey], writeReceipt: async () => {} },
+        { target: 'steps.a' }, async () => ({ page: evidencePage(), close: async () => {} }));
+    await s.settled();
+    at = 2; // a person finishes the journey in the browser
+    const v = s.view();
+    assert.equal(s.command({ runRef: v.runRef!, revision: v.revision, command: { kind: 'check' } }).accepted, true);
+    await s.settled();
+    assert.equal(s.view().lastVerified?.checkpointId, 'c');
+    assert.deepEqual(entered, ['a']);
+    assert.equal(s.view().checkpoints.find(p => p.id === 'c')?.observed?.provenance, 'manual');
+    await s.end();
 });
