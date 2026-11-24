@@ -677,3 +677,53 @@ test('resume probes the target too, with the configured probe timeout', async ()
     assert.deepEqual(calls.filter(call => !call.startsWith('verify:')), ['action:60000', 'navigation:500', 'action:500', 'navigation:60000', 'action:60000', 'navigation:500', 'action:500', 'navigation:60000', 'action:60000']);
     assert.deepEqual((await s.end()).observations.map(o => o.provenance), ['existing', 'existing']);
 });
+function filmedPage(failStart = false) {
+    const state = { filming: false };
+    const page = {
+        screencast: {
+            start: async () => { if (failStart) throw Error('encoder unavailable'); state.filming = true; },
+            stop: async () => { state.filming = false; },
+            showChapter: async () => {}
+        },
+        screenshot: async () => Buffer.from('png')
+    };
+    return { state, page: page as unknown as Page };
+}
+function filmedJourney(state: { filming: boolean }, seen: string[]) {
+    return {
+        id: 'filmed', title: 'Filmed',
+        checkpoints: [{ id: 'public', title: 'Public' }, { id: 'secret', title: 'Secret', private: true }, { id: 'after', title: 'After' }],
+        create: (): JourneyDriver => ({
+            enter: async id => { seen.push(`enter ${id} ${state.filming}`); },
+            verify: async id => { seen.push(`verify ${id} ${state.filming}`); },
+            reconcile: async () => 'public', cleanup: async () => 'complete'
+        })
+    };
+}
+test('a private checkpoint is never filmed, and filming resumes at the next checkpoint', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'moments-record-'));
+    try {
+        const { state, page } = filmedPage(), seen: string[] = [];
+        const session = await openWithBrowser({ baseURL: 'http://localhost:3000', beforeRun: async () => {}, evidenceDir: dir, journeys: [filmedJourney(state, seen)], writeReceipt: async () => {} },
+            { target: 'filmed.after', once: true, record: {} }, async () => ({ page, close: async () => {} }));
+        const result = await session.done;
+        assert.deepEqual(seen, ['enter public true', 'verify public true', 'enter secret false', 'verify secret false', 'enter after true', 'verify after true']);
+        assert.equal(state.filming, false);
+        const timeline = JSON.parse(await readFile(join(dir, result.runRef, 'recording', 'timeline.json'), 'utf8'));
+        assert.deepEqual(timeline.segments.map((s: { file: string }) => s.file), ['segment-1.webm', 'segment-2.webm']);
+        assert.deepEqual(timeline.events.flatMap((e: { frame?: string }) => e.frame ?? []), ['public.png', 'after.png']);
+        // Marks carry the receipt's own observation times, so a film can be checked against the receipt.
+        assert.deepEqual(timeline.events.filter((e: { kind: string }) => e.kind === 'observed').map((e: { at: string }) => e.at), result.observations.map(o => o.at));
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test('a recording failure never fails the run', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'moments-record-'));
+    try {
+        const { state, page } = filmedPage(true);
+        const session = await openWithBrowser({ baseURL: 'http://localhost:3000', beforeRun: async () => {}, evidenceDir: dir, journeys: [filmedJourney(state, [])], writeReceipt: async () => {} },
+            { target: 'filmed.after', once: true, record: {} }, async () => ({ page, close: async () => {} }));
+        const result = await session.done;
+        assert.equal(result.outcome, 'complete');
+        assert.equal(JSON.parse(await readFile(join(dir, result.runRef, 'recording', 'timeline.json'), 'utf8')).stoppedEarly, true);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});

@@ -26,6 +26,8 @@ export type JourneyDefinition<I extends string = string> = {
         id: I;
         title: string;
         description?: string;
+        /** Never recorded: recording stops when this checkpoint is entered and resumes when the run enters a checkpoint that is not private. */
+        private?: boolean;
     }[];
     create(context: JourneyContext): JourneyDriver<I>;
 };
@@ -91,7 +93,15 @@ export type OpenMomentOptions = {
     /** Verify each checkpoint before entering it; a passing one is recorded `existing` and not entered. */
     resume?: boolean;
     signal?: AbortSignal;
+    /** Record the run (video, `timeline.json`, a PNG per verified checkpoint) under `<evidenceDir>/<runRef>/recording`. A recording failure never fails the run. */
+    record?: { chapters?: boolean };
+    /** Told as the run enters a checkpoint, observes one, or starts or ends a reported wait. */
+    onEvent?(event: MomentEvent): void;
 };
+export type MomentEvent = { at: string } & (
+    | { kind: 'entering'; checkpointId: string }
+    | { kind: 'observed'; checkpointId: string; provenance: MomentResult['observations'][number]['provenance']; status: 'passed' | 'skipped' }
+    | { kind: 'progress'; progress: MomentProgress | null });
 export type MomentSession = {
     view(): MomentsView;
     command(request: MomentCommandRequest): MomentCommandReply;

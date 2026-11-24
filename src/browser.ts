@@ -3,6 +3,7 @@ import { BrowserSetupFailure } from './internal/browser-failure.js';
 import { chromium, type Browser, type BrowserContext, type Frame, type Page } from '@playwright/test';
 import { PACKAGE_VERSION, parseMomentCommandRequest } from './internal/protocol.js';
 import type { BrowserFactory, MomentControls } from './runner.js';
+import { RECORDING_VIEWPORT } from './recorder.js';
 /** Reserved, never-resolving origin. Every Director request is answered locally or aborted. */
 export const DIRECTOR_ORIGIN = 'https://director.moments.invalid';
 // One level below the package root from both src/ (tests via tsx) and dist/ (installed).
@@ -59,14 +60,14 @@ async function arrangeWindows(app: Page, director: Page): Promise<void> {
         }
     }
 }
-export const openBrowser: BrowserFactory = async ({ baseURL, headless, director }, controls, onClose) => {
+export const openBrowser: BrowserFactory = async ({ baseURL, headless, director, record }, controls, onClose) => {
     const browser = await chromium.launch({
         headless, handleSIGINT: false, handleSIGTERM: false
     });
     let closing = false;
     try {
         const context = await browser.newContext({
-            baseURL, ...(!headless ? { viewport: null } : {})
+            baseURL, ...(record ? { viewport: RECORDING_VIEWPORT, deviceScaleFactor: 2 } : !headless ? { viewport: null } : {})
         });
         let ownedPage: Page | undefined;
         const origin = new URL(baseURL).origin;

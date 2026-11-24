@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
-import type { FailureStage, JourneyDefinition, JourneyDriver, MomentResult, MomentSession, MomentsConfig, OpenMomentOptions } from './types.js';
+import type { FailureStage, JourneyDefinition, JourneyDriver, MomentEvent, MomentResult, MomentSession, MomentsConfig, OpenMomentOptions } from './types.js';
+import { createRecorder, type Recorder } from './recorder.js';
 import { PACKAGE_VERSION, describeMomentFailure, parseMomentCommandRequest, type MomentCommandRequest, type MomentCommandReply, type MomentProgress, type MomentSelection, type MomentsView, type PlaybackView } from './internal/protocol.js';
 import { createWriter } from './writer.js';
 import { BrowserSetupFailure } from './internal/browser-failure.js';
@@ -17,6 +19,8 @@ export type BrowserOptions = {
     headless: boolean;
     /** Run controls live only in a separate Director window; app pages get no bridge. */
     director: boolean;
+    /** A fixed recording viewport instead of the window's own size. */
+    record: boolean;
 };
 export type BrowserFactory = (options: BrowserOptions, controls: MomentControls, onClose: () => void) => Promise<OwnedBrowser>;
 export class MomentOpenError extends Error {
@@ -27,7 +31,7 @@ export function defineJourney<const I extends string>(definition: JourneyDefinit
         throw Error('Invalid journey');
     const ids = new Set<string>();
     for (const p of definition.checkpoints) {
-        if (!/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || ids.has(p.id) || !p.title.trim())
+        if (!/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || ids.has(p.id) || !p.title.trim() || (p.private !== undefined && typeof p.private !== 'boolean'))
             throw Error('Invalid checkpoint');
         ids.add(p.id);
     }
@@ -69,6 +73,8 @@ export async function openWithBrowser(config: MomentsConfig, options: OpenMoment
     const split = options.target.lastIndexOf('.'), definition = journeys.find(j => j.id === options.target.slice(0, split)), target = options.target.slice(split + 1);
     if (!definition?.checkpoints.some(p => p.id === target))
         throw Error('Unknown moment target');
+    if (options.record && !evidenceRoot(config))
+        throw Error('Recording needs a local evidence directory');
     const setup = resolveSetup(definition.setup, options.setup);
     const session = new Session(config, options, definition, factory, createWriter(config), setup);
     await session.start(target);
@@ -79,6 +85,7 @@ class Session implements MomentSession {
     private revision = 0;
     private result!: MomentResult;
     private driver?: JourneyDriver;
+    private recorder?: Recorder;
     private browser?: OwnedBrowser;
     private position = -1;
     private destination?: string;
@@ -119,6 +126,11 @@ class Session implements MomentSession {
         const attempt = this.result.failures.filter(f => f.stage === stage && f.checkpointId === checkpointId).length + 1;
         try { return await captureEvidence(root, this.result.runRef, attempt > 1 ? `${base}-${attempt}` : base, this.browser?.page, error); }
         catch { return undefined; }
+    }
+    /** Neither a listener nor the recorder can fail the run. */
+    private async emit(event: MomentEvent) {
+        try { this.options.onEvent?.(event); } catch { /* progress display only */ }
+        await this.recorder?.observe(event);
     }
     private pageTimeouts(navigation: number | undefined, action: number | undefined) {
         if (navigation !== undefined) this.browser!.page.setDefaultNavigationTimeout(navigation);
@@ -194,18 +206,20 @@ class Session implements MomentSession {
             if (!this.browser) {
                 this.browser = await this.factory({
                     baseURL: this.config.baseURL, headless: this.options.headless ?? !!this.options.once,
-                    director: this.config.director === true && !this.options.once
+                    director: this.config.director === true && !this.options.once, record: !!this.options.record
                 }, { read: () => this.view(), command: r => this.command(r) }, () => { void this.end(); });
                 this.pageTimeouts(this.config.navigationTimeoutMs, this.config.actionTimeoutMs);
             }
             this.checkActive();
             this.stage = 'create';
             const runRef = this.result.runRef;
+            if (this.options.record)
+                this.recorder = createRecorder(this.browser.page, path.join(evidenceRoot(this.config)!, runRef, 'recording'), this.definition, runRef, !!this.options.record.chapters);
             this.driver = this.definition.create({
                 page: this.browser.page, baseURL: this.config.baseURL, runRef, ...(setup ? { setup } : {}),
                 reportProgress: progress => {
                     if (this.result.runRef !== runRef || this.ending || this.result.activity === 'closed') return;
-                    if (this.progress !== progress) { this.progress = progress; this.revision++; }
+                    if (this.progress !== progress) { this.progress = progress; this.revision++; void this.emit({ kind: 'progress', progress: progress ?? null, at: new Date().toISOString() }); }
                 }
             });
             if (!this.driver || typeof this.driver.cleanup !== 'function')
@@ -462,11 +476,12 @@ class Session implements MomentSession {
             throw Error('Unknown checkpoint');
         return n;
     }
-    private async record(index: number, provenance: MomentResult['observations'][number]['provenance'], status: 'passed' | 'skipped') { this.result = {
-        ...this.result, observations: [...this.result.observations, {
-                checkpointId: this.definition.checkpoints[index]!.id, at: new Date().toISOString(), provenance, status
-            }]
-    }; await this.persist(); }
+    private async record(index: number, provenance: MomentResult['observations'][number]['provenance'], status: 'passed' | 'skipped') {
+        const observation = { checkpointId: this.definition.checkpoints[index]!.id, at: new Date().toISOString(), provenance, status };
+        this.result = { ...this.result, observations: [...this.result.observations, observation] };
+        await this.persist();
+        await this.emit({ kind: 'observed', ...observation });
+    }
     private async advance(target: string, reconcile: boolean, continuing = false) {
         if (reconcile) {
             const adopted = await this.reconcilePosition();
@@ -523,6 +538,7 @@ class Session implements MomentSession {
         this.checkActive();
         this.destination = this.definition.checkpoints[index]!.id;
         this.revision++;
+        await this.emit({ kind: 'entering', checkpointId: this.destination, at: new Date().toISOString() });
         this.stage = 'enter';
         await this.driver!.enter(this.destination);
         this.stage = 'verify';
@@ -573,6 +589,9 @@ class Session implements MomentSession {
         if (this.result.activity === 'closed' && !this.browser)
             return true;
         this.activity('closing');
+        // Cleanup is not filmed, and the recording must be saved before its page closes.
+        await this.recorder?.finish();
+        this.recorder = undefined;
         if (!await this.persistBeforeCustodyRelease()) return this.holdCloseCustody();
         try {
             this.stage = 'cleanup';

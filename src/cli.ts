@@ -2,7 +2,7 @@
 import { loadConfig, ConfigError } from './config.js';
 import { openMoment, MomentOpenError } from './index.js';
 import { describeMomentFailure } from './internal/protocol.js';
-import type { MomentsConfig, MomentResult } from './types.js';
+import type { MomentEvent, MomentsConfig, MomentResult } from './types.js';
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { evidenceRoot } from './evidence.js';
@@ -10,8 +10,8 @@ import { MAX_SETUP_BYTES, formatSetupIssues, MomentSetupError, parseSetupFile, t
 
 const help = `Usage:
   moments list [--config <path>]
-  moments open <journey.checkpoint> [--config <path>] [--once] [--headless] [--resume] [--output <dir>]
-  moments open [journey.checkpoint] --setup <path> [--config <path>] [--once] [--headless] [--resume] [--output <dir>]
+  moments open <journey.checkpoint> [--config <path>] [--once] [--headless] [--resume] [--output <dir>] [--record [--chapters]]
+  moments open [journey.checkpoint] --setup <path> [--config <path>] [--once] [--headless] [--resume] [--output <dir>] [--record [--chapters]]
   moments --help
 
 Config defaults to moments.config.ts in the current directory.
@@ -24,19 +24,24 @@ Open uses a headed browser; use End (panel or Moments Director) or close a Momen
          as existing and not entered. Entering starts at the first that fails.
 --output writes receipts and latest.json to <dir> (relative to the current directory)
          for this run; failure evidence goes to <dir>/../evidence unless evidenceDir is set.
+--record films the run privately beside its failure evidence: a WebM per stretch between
+         private checkpoints, timeline.json, and a PNG at each verified checkpoint.
+         latest.json points at it. A recording failure never fails the run.
+--chapters draws each checkpoint's title into the recording as it is verified.
+Progress lines go to stderr as each checkpoint is entered and verified.
 A failed step prints its message and a local evidence file (message, URL, screenshot).
 Exit status: 0 completed, 1 incomplete, 2 invalid arguments/config,
              130 interrupted by SIGINT, 143 interrupted by SIGTERM.
 `;
 
 class UsageError extends Error {}
-type Arguments = { command: 'list' | 'open'; configPath?: string; setupPath?: string; outputPath?: string; target?: string; once: boolean; headless: boolean; resume: boolean };
+type Arguments = { command: 'list' | 'open'; configPath?: string; setupPath?: string; outputPath?: string; target?: string; once: boolean; headless: boolean; resume: boolean; record: boolean; chapters: boolean };
 
 function parseArguments(args: string[]): Arguments | undefined {
     if (!args.length || (args.length === 1 && ['--help', '-h'].includes(args[0]!))) return undefined;
     const command = args[0];
     if (command !== 'list' && command !== 'open') throw new UsageError('Choose list or open. Use moments --help for usage.');
-    let configPath: string | undefined, setupPath: string | undefined, outputPath: string | undefined, target: string | undefined, once = false, headless = false, resume = false;
+    let configPath: string | undefined, setupPath: string | undefined, outputPath: string | undefined, target: string | undefined, once = false, headless = false, resume = false, record = false, chapters = false;
     for (let i = 1; i < args.length; i++) {
         const arg = args[i]!;
         if (arg === '--config') {
@@ -57,6 +62,12 @@ function parseArguments(args: string[]): Arguments | undefined {
         } else if (arg === '--resume') {
             if (command !== 'open' || resume) throw new UsageError('--resume is available once with moments open.');
             resume = true;
+        } else if (arg === '--record') {
+            if (command !== 'open' || record) throw new UsageError('--record is available once with moments open.');
+            record = true;
+        } else if (arg === '--chapters') {
+            if (command !== 'open' || chapters) throw new UsageError('--chapters is available once with moments open.');
+            chapters = true;
         } else if (arg === '--headless') {
             if (command !== 'open' || headless) throw new UsageError('--headless is available once with moments open.');
             headless = true;
@@ -66,8 +77,9 @@ function parseArguments(args: string[]): Arguments | undefined {
             throw new UsageError('Unexpected argument. Use moments --help for usage.');
         }
     }
+    if (chapters && !record) throw new UsageError('--chapters draws into a recording: add --record.');
     if (command === 'open' && !target && !setupPath) throw new UsageError('Choose a target: moments open <journey.checkpoint>, or use --setup <path>. Use moments list to see targets.');
-    return { command, configPath, setupPath, outputPath, target, once, headless, resume };
+    return { command, configPath, setupPath, outputPath, target, once, headless, resume, record, chapters };
 }
 
 async function readSetupFile(filePath: string): Promise<MomentSetupFile> {
@@ -116,6 +128,20 @@ async function writeLatest(outputDir: string, pointer: object): Promise<void> {
     }
 }
 
+/** One stderr line per event, timed from the start of the run. */
+function progressPrinter(checkpoints: readonly { id: string; title: string }[]): (event: MomentEvent) => void {
+    const began = Date.now();
+    return event => {
+        const seconds = Math.floor((Date.now() - began) / 1000);
+        const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`.padStart(6);
+        const title = 'checkpointId' in event ? checkpoints.find(point => point.id === event.checkpointId)?.title ?? event.checkpointId : '';
+        const line = event.kind === 'entering' ? `entering    ${title}`
+            : event.kind === 'observed' ? `${event.status === 'passed' ? 'verified' : 'skipped'}    ${title}${event.provenance === 'native' ? '' : ` (${event.provenance})`}`
+            : event.progress === 'waiting-for-code' ? 'waiting for a fresh code…' : undefined;
+        if (line) process.stderr.write(`${clock}  ${line}\n`);
+    };
+}
+
 async function reportResult(result: MomentResult, config: MomentsConfig): Promise<void> {
     const receipt = config.writeReceipt ? undefined : resolve(config.outputDir ?? ".moments/runs", `${result.runRef}.json`);
     const root = evidenceRoot(config);
@@ -139,7 +165,10 @@ async function reportResult(result: MomentResult, config: MomentsConfig): Promis
     }
     if (journey) process.stdout.write(`Checkpoints:\n${checkpointSummary(result, journey.checkpoints)}`);
     const first = evidence(result.failures.find(failure => failure.evidence)?.evidence);
-    if (receipt) await writeLatest(config.outputDir!, { runRef: result.runRef, receipt, outcome: result.outcome, ...(first ? { evidence: first } : {}) });
+    const recording = root && join(root, result.runRef, 'recording');
+    const recorded = recording && await stat(join(recording, 'timeline.json')).then(() => true, () => false);
+    if (recorded) process.stdout.write(`Recording: ${recording}\n`);
+    if (receipt) await writeLatest(config.outputDir!, { runRef: result.runRef, receipt, outcome: result.outcome, ...(first ? { evidence: first } : {}), ...(recorded ? { recording } : {}) });
 }
 
 async function main(): Promise<number> {
@@ -167,6 +196,7 @@ async function main(): Promise<number> {
         if (args.outputPath !== undefined && loaded.writeReceipt) throw new UsageError('--output needs a config that uses outputDir, not writeReceipt.');
         const config: MomentsConfig = args.outputPath === undefined ? loaded : { ...loaded, outputDir: resolve(process.cwd(), args.outputPath) } as MomentsConfig;
         if (controller.signal.aborted) return interrupted === 'SIGTERM' ? 143 : 130;
+        if (args.record && !evidenceRoot(config)) throw new UsageError('--record keeps the recording beside failure evidence: set evidenceDir, or use outputDir rather than writeReceipt.');
         if (args.command === 'list') {
             for (const journey of config.journeys) {
                 for (const checkpoint of journey.checkpoints) {
@@ -182,7 +212,8 @@ async function main(): Promise<number> {
         }
         try {
             const session = await openMoment(config, {
-                target: target!, ...(file ? { setup: file.setup } : {}), once: args.once, headless: args.once || args.headless, resume: args.resume, signal: controller.signal
+                target: target!, ...(file ? { setup: file.setup } : {}), once: args.once, headless: args.once || args.headless, resume: args.resume, signal: controller.signal,
+                onEvent: progressPrinter(journey.checkpoints), ...(args.record ? { record: { chapters: args.chapters } } : {})
             });
             if (!args.once && !controller.signal.aborted) process.stdout.write(config.director
                 ? 'Moments: ready. Use the Moments Director window to move through the journey; End or closing either window finishes.\n'
