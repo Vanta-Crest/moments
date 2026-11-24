@@ -248,6 +248,37 @@ restored state without entering another checkpoint. Ordinary Check remains
 verification-only. Successful recovery permits progression while retaining the
 original failed history.
 
+### Recording a run
+
+`moments open <target> --once --record` films the run: one WebM per stretch of
+filming, a frame at each verified checkpoint and a `timeline.json` that ties them
+to the receipt. Add `--chapters` to draw each checkpoint's title and description
+onto the video as it is verified (each card holds the run for two seconds).
+Recording is passive: it never clicks, waits or types for the journey, and an
+error in it stops filming with one warning while the run carries on. Use
+`reportProgress("waiting-for-code")` for real waits; the timeline marks them so
+an editor can shorten them honestly.
+
+A recording shows everything on screen, unlike a receipt. Mark every checkpoint
+whose screens show a secret `private: true`: passwords being set, authenticator
+setup keys and codes, recovery codes, invitation emails.
+
+```ts
+checkpoints: [
+  { id: "activated", title: "Account activated", private: true },
+  { id: "signed-in", title: "Signed in", private: true },
+  { id: "drafted", title: "Item drafted" },
+]
+```
+
+Filming stops before a private checkpoint is entered and resumes when the run
+enters a checkpoint that is not private. The screen a private checkpoint ends on
+is therefore filmed at the start of the next one. If that screen still shows a
+secret (a page of recovery codes), make the next checkpoint private too, or have
+its `enter` leave that screen first. Playwright's action titles are never drawn:
+they print typed values, passwords included. Recordings stay in the private
+evidence folder; review every frame before a recording leaves your machine.
+
 ## Results
 
 The default writer serializes updates and atomically replaces

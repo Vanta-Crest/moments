@@ -21,11 +21,12 @@ npm run moments -- open task.created --once
 npm run moments -- open task.completed --once
 ```
 
-The local source checkout uses `file:../..` for development. To use this example
-outside the checkout, copy its files and replace that dependency with the
-installed package version or the absolute path of an actual npm tarball before
-running `npm install`. The public source export substitutes its package name in
-imports and metadata. Use the same version for the CLI and app.
+The example installs `@vanta-crest/moments` from npm. To try an unreleased
+checkout, pack it (`npm pack` in the repository root) and run
+`npm install --no-save <tarball>` here. Use the same version for the CLI and app.
+
+`npm run moments -- open task.completed --once --record --chapters` films the run;
+`Recording:` names the private folder holding the video.
 
 A draft starts with no records and an empty input. Created submits the form;
 completed clicks the real completion button. Verification reads the backend and

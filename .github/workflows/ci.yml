@@ -21,7 +21,7 @@ jobs:
       - run: npm test
       - run: node scripts/cli-proof.mjs
       - run: mkdir .release && npm pack --pack-destination .release
-      - run: npm install --prefix examples/task-app
+      # The packed tarball stands in for the registry version the example names.
       - run: npm install --prefix examples/task-app --no-save ./.release/*.tgz
       - run: npm run build --prefix examples/task-app
       - run: MOMENTS_TARBALL="$(realpath .release/*.tgz)" npm run proof --prefix examples/task-app

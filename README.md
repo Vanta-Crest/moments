@@ -4,24 +4,38 @@ Open a real application at a verified checkpoint, explore by hand, then continue
 the same journey. Moments coordinates browser and run lifecycle; your driver
 performs application actions, verifies outcomes and cleans up its own resources.
 
-Private package on GitHub Packages: `@vanta-crest/moments`. See
-[releasing](docs/releasing.md#consuming) for registry setup.
+Moments can also film a run: a private video of the real screens, a timeline
+tying it to the run's verified checkpoints, and one frame per checkpoint.
 
-## Try the task app
+`npm install --save-dev @vanta-crest/moments @playwright/test` (Apache-2.0).
 
-Use Node 24. From this package directory:
+## Try it: record a walkthrough of the task app
+
+Use Node 24. You need nothing else: no account, token or cloud service.
 
 ```sh
+git clone https://github.com/Vanta-Crest/moments.git
+cd moments/examples/task-app
 npm install
-npm run build
 npx playwright install chromium
-cd examples/task-app
-npm install
 npm run build
 npm start
 ```
 
-Keep the app running. In a second terminal in `examples/task-app`:
+Keep the app running. In a second terminal, in `moments/examples/task-app`:
+
+```sh
+npx moments open task.completed --once --record --chapters
+```
+
+Moments creates a task, completes it and deletes it again, printing a line as each
+checkpoint is entered and verified. The last line is `Recording: <folder>`. Open
+`segment-1.webm` from that folder in a web browser: each checkpoint's title
+appears on screen at the moment it was verified. The folder also holds
+`timeline.json` and a frame per verified checkpoint. It is private (`0700`):
+a recording shows everything on screen, so review it before sharing.
+
+To explore by hand instead:
 
 ```sh
 npx moments list
@@ -32,18 +46,12 @@ Moments creates and verifies a task in a managed browser. Click **Complete task*
 yourself, then **Continue** to verify and adopt manual progress. **End session**
 deletes only this run's task and closes the browser.
 
-For unattended use:
-
-```sh
-npx moments open task.completed --once
-```
-
-This runs headless, verifies the target, cleans up and prints the result: one
+`--once` runs headless, verifies the target, cleans up and prints the result: one
 line per checkpoint (passed, skipped, failed, not reached) and, for a failure,
 the checkpoint, stage, thrown message and a local evidence file with the page URL
-and a screenshot. `.moments/runs/latest.json` points at the run's JSON receipt.
-Incomplete runs exit 1. The example uses real HTTP/backend state without accounts,
-providers or cloud services.
+and a screenshot. `.moments/runs/latest.json` points at the run's JSON receipt,
+evidence and recording. Incomplete runs exit 1. The example uses real HTTP and
+backend state without accounts, providers or cloud services.
 
 Useful `open` flags on slow or shared stacks:
 
@@ -52,6 +60,8 @@ Useful `open` flags on slow or shared stacks:
   [resuming](docs/authoring.md#resuming-a-journey) for when a journey supports it.
 - `--output <dir>` writes this run's receipts elsewhere, so parallel runs of one
   config do not collide.
+- `--record` films the run; mark sign-in and secret screens `private`. See
+  [recording a run](docs/authoring.md#recording-a-run).
 
 ## Add it to your application
 
@@ -104,14 +114,19 @@ Read the [authoring guide](docs/authoring.md), [reference](docs/reference.md),
 ## Development
 
 ```sh
+npm install
 npm run build
 npm test
 node scripts/cli-proof.mjs
+npm pack --pack-destination .release
 cd examples/task-app
-npm install
+npm install --no-save ../../.release/vanta-crest-moments-*.tgz
 npm run build
 npm run proof
 ```
+
+The example names the published package; installing the packed tarball over it
+proves this checkout instead.
 
 The example proof exercises the CLI, managed browser, real HTTP service, backend
 state and cleanup. Core tests retain distinct lifecycle/persistence failures.

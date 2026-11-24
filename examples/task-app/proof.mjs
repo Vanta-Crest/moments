@@ -169,11 +169,26 @@ try {
       assert.deepEqual(latest, { runRef: receipt.runRef, receipt: join(receipts, `${receipt.runRef}.json`), outcome: 'incomplete', evidence: evidenceFile });
       report.assertions.push('once-failure: CLI names the checkpoint, message and private evidence (URL, screenshot); latest.json points at the run');
     }
+    if (args.includes('--record')) {
+      const recording = join(directory, 'evidence', receipt.runRef, 'recording');
+      assert.equal(JSON.parse(await readFile(join(receipts, 'latest.json'), 'utf8')).recording, recording);
+      const timeline = JSON.parse(await readFile(join(recording, 'timeline.json'), 'utf8'));
+      assert.equal(timeline.runRef, receipt.runRef);
+      const observed = timeline.events.filter(event => event.kind === 'observed');
+      assert.deepEqual(observed.map(event => event.at), receipt.observations.map(item => item.at), 'Timeline marks carry the receipt times');
+      for (const file of [...timeline.segments.map(segment => segment.file), ...observed.map(event => event.frame), 'timeline.json']) {
+        const info = await stat(join(recording, file));
+        assert.ok(info.size > 0); assert.equal(info.mode & 0o077, 0, 'Recording is private');
+      }
+      assert.match(result.stderr, /\d:\d\d  verified    Task created\n/);
+      report.assertions.push(`${name}: private video, timeline and checkpoint frames match the receipt; latest.json points at them; progress lines printed`);
+    }
     if (scenario === 'signal') assert.ok(receipt.failures.some(item => item.code === 'interrupted'));
     report.assertions.push(`${name}: closed receipt, private file, owned cleanup, foreign record preserved`);
   }
   await run('list', ['list']);
   for (const checkpoint of ['draft', 'created', 'completed']) await run(`once-${checkpoint}`, ['open', `task.${checkpoint}`, '--once']);
+  await run('once-record', ['open', 'task.completed', '--once', '--record', '--chapters']);
   await run('once-failure', ['open', 'task.created', '--once'], 'once-failure', 1);
   await run('manual', ['open', 'task.draft', '--headless'], 'manual');
   // Failure history deliberately remains incomplete even after recovery.

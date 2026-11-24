@@ -2,8 +2,8 @@
 
 ```sh
 moments list [--config path]
-moments open journey.checkpoint [--config path] [--once] [--headless] [--resume] [--output dir]
-moments open [journey.checkpoint] --setup ./review.json [--config path] [--once] [--headless] [--resume] [--output dir]
+moments open journey.checkpoint [--config path] [--once] [--headless] [--resume] [--output dir] [--record [--chapters]]
+moments open [journey.checkpoint] --setup ./review.json [--config path] [--once] [--headless] [--resume] [--output dir] [--record [--chapters]]
 moments --help
 ```
 
@@ -22,23 +22,32 @@ bounds each resume probe. Optional `evidenceDir` (string beside the config, or
 CLI output defaults to `.moments/runs` relative to the config file. `--output dir`
 replaces it for one run, relative to the caller's cwd; it requires `outputDir`
 mode, not `writeReceipt`. `--resume` verifies each checkpoint before entering it.
+While a run works, the CLI prints a timed line to stderr as each checkpoint is
+entered and verified, and while a journey reports `waiting-for-code`.
 After a run the CLI prints a line per failure (checkpoint, stage, first message
 line, evidence path) and a per-checkpoint summary, and writes
-`<outputDir>/latest.json` (`runRef`, `receipt`, `outcome`, optional `evidence`). Direct API
+`<outputDir>/latest.json` (`runRef`, `receipt`, `outcome`, optional `evidence`
+and `recording`). `--record` films the run into
+`<evidence>/<runRef>/recording/` and needs a local evidence directory;
+`--chapters` (with `--record`) draws each checkpoint's title and description as
+it is verified, for two seconds. Direct API
 paths follow the caller's cwd. Config modules execute trusted local code.
 Setup file paths resolve from the caller's cwd. Only `open` accepts `--setup`,
 once. Its journey/checkpoint supplies the target; an optional positional target
 must match exactly. Invalid setup exits 2 before admission or provisioning.
 
-`defineJourney` validates ordered unique checkpoints. Its synchronous `create`
+`defineJourney` validates ordered unique checkpoints. A checkpoint marked
+`private: true` is never recorded (see below). Its synchronous `create`
 returns a driver with `enter`, `verify`, `reconcile` and `cleanup`. Context supplies
 Playwright `page`, `baseURL`, `runRef`, optional immutable `setup` and optional
 `reportProgress`. Optional journey `setup` declares a positive integer schema
 version, fields, complete defaults and a pure parser. Unconfigured journeys
 reject explicit setup.
 
-`openMoment(config, {target, setup?, once?, headless?, resume?, signal?})` prepares the target and
-returns a session. Initialization failure throws `MomentOpenError` after
+`openMoment(config, {target, setup?, once?, headless?, resume?, signal?, record?, onEvent?})` prepares the target and
+returns a session. `record: { chapters? }` films the run. `onEvent(event)` is told
+`entering` (`checkpointId`), `observed` (`checkpointId`, `provenance`, `status`,
+with the receipt's own `at`) and `progress` (`progress` or `null`) events. Initialization failure throws `MomentOpenError` after
 finalization; inspect its safe `result`. `--once` defaults headless and ends after
 verification. Interactive runs hold the browser until End or a shutdown signal.
 Input rejection throws `MomentSetupError` before effects; its bounded `issues`
@@ -108,3 +117,35 @@ Setup files are UTF-8 JSON of at most 64 KiB with this exact envelope:
 and `resolveSetup` are available from root and browser-safe `/protocol` exports.
 Explicit values are complete strings; no partial patches, default merging or
 unknown/private keys. Structural codecs do not replace journey admission rules.
+
+## Recordings
+
+`--record` sets a 1280×720 viewport at device scale 2 and writes, in
+`<evidence>/<runRef>/recording/` (directories `0700`, files `0600`):
+
+- `segment-<n>.webm`: 1920×1080 VP8 video at 25 fps. A new segment starts each
+  time filming resumes after a private checkpoint.
+- `<checkpointId>.jpg` (then `-2`, `-3` on repeats): the video frame on screen when
+  that checkpoint was verified. Private checkpoints have none.
+- `timeline.json`:
+
+```json
+{
+  "schemaVersion": 1, "runRef": "…", "journeyId": "task",
+  "viewport": { "width": 1280, "height": 720 }, "videoSize": { "width": 1920, "height": 1080 },
+  "chapterMs": 2000,
+  "checkpoints": [{ "id": "created", "title": "Task created", "description": "…" }],
+  "segments": [{ "file": "segment-1.webm", "startedAt": "2026-11-24T00:14:37.161Z" }],
+  "events": [
+    { "kind": "entering", "checkpointId": "created", "at": "…", "segment": 0, "offsetMs": 2570 },
+    { "kind": "observed", "checkpointId": "created", "provenance": "native", "status": "passed",
+      "at": "…", "segment": 0, "offsetMs": 2666, "frame": "created.jpg" }
+  ]
+}
+```
+
+`at` on an `observed` event is the receipt observation's own time. `segment` and
+`offsetMs` (milliseconds into that segment) are absent while filming is paused.
+`chapterMs` is present with `--chapters`; checkpoints carry `private: true` when
+marked. `stoppedEarly: true` means a recording error stopped filming; the run
+itself was unaffected. A recording is local evidence, never part of the receipt.
