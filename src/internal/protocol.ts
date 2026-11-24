@@ -75,6 +75,11 @@ export type MomentsView = {
         title: string;
         restartExplanation?: string;
     };
+    /** What system the run is driving: the configured label and the origin of its base address. */
+    environment?: string;
+    origin?: string;
+    /** Present only for a recorded run: whether the screen is being filmed right now. */
+    recording?: "filming" | "paused";
     setup?: { schemaVersion: number; fields: readonly SetupField[]; defaults: SetupValues; active: MomentSetup };
     checkpoints: readonly {
         id: string;
@@ -82,6 +87,10 @@ export type MomentsView = {
         description: string;
         status: "not-checked" | "passed" | "skipped" | "failed";
         opening: "reuse" | "fresh-run" | "unavailable";
+        actor?: string;
+        private?: boolean;
+        /** The latest observation of this checkpoint: when, and whether the runner, a person or an earlier run produced it. */
+        observed?: { at: string; provenance: "native" | "manual" | "existing" };
     }[];
     controls: {
         check: boolean;

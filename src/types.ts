@@ -26,8 +26,12 @@ export type JourneyDefinition<I extends string = string> = {
         id: I;
         title: string;
         description?: string;
-        /** Never recorded: recording stops when this checkpoint is entered and resumes when the run enters a checkpoint that is not private. */
+        /** Never filmed: filming stops before this checkpoint is entered or checked, and resumes at the next checkpoint that is not private. */
         private?: boolean;
+        /** Who acts at this checkpoint, as a viewer should read it: a name and role. Kept in the receipt and shown in the panel. */
+        actor?: string;
+        /** References this checkpoint proves, such as acceptance journeys or requirements (`AJ-07`, `REQ-112`). Kept in the receipt. */
+        covers?: readonly string[];
     }[];
     create(context: JourneyContext): JourneyDriver<I>;
 };
@@ -37,6 +41,12 @@ export type MomentResult = {
     sessionId: string;
     runRef: string;
     journeyId: string;
+    /** The journey as it stood for this run, so the receipt stands alone after the journey file changes. */
+    journeyTitle: string;
+    checkpoints: readonly { id: string; title: string; actor?: string; covers?: readonly string[]; private?: true }[];
+    /** The configured environment label and the origin of `baseURL`: what system this run touched. */
+    environment?: string;
+    origin: string;
     target: string;
     previousRunRef?: string;
     selection?: MomentSelection;
@@ -65,6 +75,8 @@ export type MomentResult = {
 };
 export type MomentsConfig = {
     baseURL: string;
+    /** Names the system this config drives, as a reviewer should read it (`Zamfara BPP, local stack c13`). Kept in receipts and shown in the panel. */
+    environment?: string;
     journeys: readonly JourneyDefinition[];
     beforeRun(journeyId: string): Promise<void>;
     /** Open run controls in a separate Moments Director window. Interactive runs only. */

@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 import type { FailureStage, JourneyDefinition, JourneyDriver, MomentEvent, MomentResult, MomentSession, MomentsConfig, OpenMomentOptions } from './types.js';
 import { createRecorder, type Recorder } from './recorder.js';
 import { PACKAGE_VERSION, describeMomentFailure, parseMomentCommandRequest, type MomentCommandRequest, type MomentCommandReply, type MomentProgress, type MomentSelection, type MomentsView, type PlaybackView } from './internal/protocol.js';
-import { createWriter } from './writer.js';
+import { createWriter, recordLabel } from './writer.js';
 import { BrowserSetupFailure } from './internal/browser-failure.js';
 import { MomentSetupError, resolveSetup, type MomentSetup } from './setup.js';
 import { EVIDENCE_STAGES, FILE_ONLY_STAGES, captureEvidence, evidenceRoot, type FailureEvidence } from './evidence.js';
@@ -26,12 +26,17 @@ export type BrowserFactory = (options: BrowserOptions, controls: MomentControls,
 export class MomentOpenError extends Error {
     constructor(readonly result: MomentResult) { super('Moment initialization failed; inspect safe result'); this.name = 'MomentOpenError'; }
 }
+const reference = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/;
+type Observation = MomentResult['observations'][number];
+const observed = (o: Observation | undefined) => ({ status: o?.status ?? 'not-checked' as const, ...(o ? { observed: { at: o.at, provenance: o.provenance } } : {}) });
 export function defineJourney<const I extends string>(definition: JourneyDefinition<I>): JourneyDefinition<I> {
     if (!/^[a-z][a-z0-9.-]{0,127}$/.test(definition.id) || !definition.title.trim() || !definition.checkpoints.length)
         throw Error('Invalid journey');
     const ids = new Set<string>();
     for (const p of definition.checkpoints) {
-        if (!/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || ids.has(p.id) || !p.title.trim() || (p.private !== undefined && typeof p.private !== 'boolean'))
+        if (!/^[a-z][a-z0-9-]{0,63}$/.test(p.id) || ids.has(p.id) || !p.title.trim() || (p.private !== undefined && typeof p.private !== 'boolean')
+            || (p.actor !== undefined && !recordLabel(p.actor, 120))
+            || (p.covers !== undefined && (!Array.isArray(p.covers) || !p.covers.length || new Set(p.covers).size !== p.covers.length || !p.covers.every(c => typeof c === 'string' && reference.test(c)))))
             throw Error('Invalid checkpoint');
         ids.add(p.id);
     }
@@ -52,6 +57,8 @@ export async function openWithBrowser(config: MomentsConfig, options: OpenMoment
     const url = new URL(config.baseURL);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
         throw Error('Invalid baseURL');
+    if (config.environment !== undefined && !recordLabel(config.environment, 80))
+        throw Error('Invalid environment');
     const ids = new Set<string>();
     const journeys = config.journeys.map(j => defineJourney(j));
     for (const j of journeys) {
@@ -186,7 +193,9 @@ class Session implements MomentSession {
     private async openRun(target: string, previousRunRef?: string, setup?: MomentSetup, allocatedRunRef?: string, reuseBrowser = false) {
         const at = new Date().toISOString();
         this.result = {
-            schemaVersion: 3, packageVersion: PACKAGE_VERSION, sessionId: this.sessionId, runRef: allocatedRunRef ?? randomUUID(), journeyId: this.definition.id, target, ...(previousRunRef ? { previousRunRef } : {}), ...(setup ? { setup } : {}), ...(this.selection ? { selection: this.selection } : {}), activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending'
+            schemaVersion: 3, packageVersion: PACKAGE_VERSION, sessionId: this.sessionId, runRef: allocatedRunRef ?? randomUUID(), journeyId: this.definition.id, journeyTitle: this.definition.title,
+            checkpoints: this.definition.checkpoints.map(({ id, title, actor, covers, private: secret }) => ({ id, title, ...(actor ? { actor } : {}), ...(covers ? { covers: [...covers] } : {}), ...(secret ? { private: true as const } : {}) })),
+            ...(this.config.environment ? { environment: this.config.environment } : {}), origin: new URL(this.config.baseURL).origin, target, ...(previousRunRef ? { previousRunRef } : {}), ...(setup ? { setup } : {}), ...(this.selection ? { selection: this.selection } : {}), activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending'
         };
         this.position = -1;
         this.driver = undefined;
@@ -215,7 +224,8 @@ class Session implements MomentSession {
             this.stage = 'create';
             const runRef = this.result.runRef;
             if (this.options.record)
-                this.recorder = createRecorder(this.browser.page, path.join(evidenceRoot(this.config)!, runRef, 'recording'), this.definition, runRef, !!this.options.record.chapters);
+                this.recorder = createRecorder(this.browser.page, path.join(evidenceRoot(this.config)!, runRef, 'recording'), this.definition, runRef, !!this.options.record.chapters,
+                    { ...(this.config.environment ? { environment: this.config.environment } : {}), origin: new URL(this.config.baseURL).origin });
             this.driver = this.definition.create({
                 page: this.browser.page, baseURL: this.config.baseURL, runRef, ...(setup ? { setup } : {}),
                 reportProgress: progress => {
@@ -246,6 +256,8 @@ class Session implements MomentSession {
         return {
             ...(this.config.catalogue ? { catalogue: structuredClone(this.config.catalogue.view) } : {}),
             ...(this.selection ? { selection: { ...this.selection } } : {}),
+            ...(this.config.environment ? { environment: this.config.environment } : {}), origin: new URL(this.config.baseURL).origin,
+            ...(this.recorder ? { recording: this.recorder.filming() ? 'filming' as const : 'paused' as const } : {}),
             sessionId: this.sessionId, runRef: r?.runRef, revision: this.revision, journey: {
                 id: this.definition.id, title: this.definition.title,
                 ...(this.definition.restartExplanation ? { restartExplanation: this.definition.restartExplanation } : {})
@@ -263,7 +275,9 @@ class Session implements MomentSession {
             ...(this.failure ? { failure: this.failure } : {}), ...(this.destination ? { destinationId: this.destination } : {}), ...(last ? { lastVerified: {
                     checkpointId: last.checkpointId, at: last.at
                 } } : {}), ...(this.definition.checkpoints[this.position + 1] ? { nextId: this.definition.checkpoints[this.position + 1]!.id } : {}), checkpoints: this.definition.checkpoints.map((p, i) => ({
-                id: p.id, title: p.title, description: p.description ?? '', status: r?.observations.filter(o => o.checkpointId === p.id).at(-1)?.status ?? 'not-checked', opening: !available || (!advance && i >= this.position) ? 'unavailable' : i < this.position ? 'fresh-run' : 'reuse'
+                ...observed(r?.observations.filter(o => o.checkpointId === p.id).at(-1)),
+                ...(p.actor ? { actor: p.actor } : {}), ...(p.private ? { private: true } : {}),
+                id: p.id, title: p.title, description: p.description ?? '', opening: !available || (!advance && i >= this.position) ? 'unavailable' : i < this.position ? 'fresh-run' : 'reuse'
             })), ...(this.failure ? { message: this.custodyHeld
                 ? 'The current run is retained because cleanup, receipt storage, or browser closure failed. Resolve the failure, then retry End.'
                 : this.failure.stage === 'persist' && r.replacementRequested && this.driver

@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { defineJourney } from './runner.js';
+import { recordLabel } from './writer.js';
 import type { MomentsConfig } from './types.js';
 
 /** Preserve inference while authoring a Moments configuration. */
@@ -30,11 +31,12 @@ function validateConfig(value: unknown): asserts value is MomentsConfig {
         if (config.writeReceipt !== undefined && typeof config.writeReceipt !== 'function') throw Error();
         if (config.outputDir !== undefined && config.writeReceipt !== undefined) throw Error();
         if (config.director !== undefined && typeof config.director !== 'boolean') throw Error();
+        if (config.environment !== undefined && !recordLabel(config.environment, 80)) throw Error();
         for (const ms of [config.navigationTimeoutMs, config.actionTimeoutMs, config.resumeProbeTimeoutMs])
             if (ms !== undefined && (!Number.isSafeInteger(ms) || ms <= 0)) throw Error();
         if (config.evidenceDir !== undefined && config.evidenceDir !== false && (typeof config.evidenceDir !== 'string' || !config.evidenceDir.trim())) throw Error();
     } catch {
-        throw new ConfigError('Invalid Moments config. Check baseURL, journeys, beforeRun, director, evidenceDir, timeouts, and either outputDir or writeReceipt.');
+        throw new ConfigError('Invalid Moments config. Check baseURL, environment, journeys, beforeRun, director, evidenceDir, timeouts, and either outputDir or writeReceipt.');
     }
 }
 

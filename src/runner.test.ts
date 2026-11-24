@@ -769,3 +769,20 @@ test('a failed prerequisite keeps the author\'s own message as local evidence', 
         assert.match(text, /Screenshot: not available \(no page was open\)/);
     } finally { await rm(root, { recursive: true, force: true }); }
 });
+test('the receipt names the system, the actors and what each checkpoint proves', async () => {
+    const receipts: MomentResult[] = [];
+    const journey = { ...failingJourney({}), checkpoints: [
+        { id: 'first', title: 'First', actor: 'Amina Bello, Desk Officer', covers: ['AJ-07', 'REQ-112'] },
+        { id: 'second', title: 'Second', private: true }] };
+    const s = await openWithBrowser({ baseURL: 'http://127.0.0.1:4177/app?x=1', environment: 'Task app, local', beforeRun: async () => {}, journeys: [journey],
+        writeReceipt: async r => { receipts.push(r); } }, { target: 'evidence.first', once: true }, async () => ({ page: evidencePage(), close: async () => {} }));
+    const result = await s.done;
+    assert.equal(result.environment, 'Task app, local');
+    assert.equal(result.origin, 'http://127.0.0.1:4177');
+    assert.equal(result.journeyTitle, 'Evidence');
+    assert.deepEqual(result.checkpoints, [
+        { id: 'first', title: 'First', actor: 'Amina Bello, Desk Officer', covers: ['AJ-07', 'REQ-112'] }, { id: 'second', title: 'Second', private: true }]);
+    assert.ok(receipts.length > 0);
+    await assert.rejects(openWithBrowser({ baseURL: 'http://127.0.0.1:4177', beforeRun: async () => {},
+        journeys: [{ ...journey, checkpoints: [{ id: 'first', title: 'First', covers: ['AJ 07'] }] }] }, { target: 'evidence.first', once: true }, async () => ({ page: evidencePage(), close: async () => {} })), /Invalid checkpoint/);
+});

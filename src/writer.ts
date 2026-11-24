@@ -4,13 +4,22 @@ import { randomUUID } from 'node:crypto';
 import type { MomentResult, MomentsConfig } from './types.js';
 import { parseMomentSetup } from './setup.js';
 import { PACKAGE_VERSION } from './internal/protocol.js';
+/** Short authored text that names something for a reviewer: one line, at most `max` characters. */
+export const recordLabel = (value: unknown, max: number) => typeof value === 'string' && !!value.trim() && value.length <= max && !/[\r\n]/.test(value);
 const stages = ['admission', 'browser', 'create', 'enter', 'verify', 'reconcile', 'cleanup', 'persist', 'close'];
 export function validateResult(r: MomentResult): void {
     const exact = (o: object, keys: string[]) => Object.keys(o).every(k => keys.includes(k));
     const id = (s: string) => typeof s === 'string' && /^[a-zA-Z0-9.-]{1,128}$/.test(s);
     const time = (s: string) => typeof s === 'string' && Number.isFinite(Date.parse(s));
-    if (!r || !exact(r, ['schemaVersion', 'packageVersion', 'sessionId', 'runRef', 'journeyId', 'target', 'previousRunRef', 'selection', 'setup', 'replacementRequested', 'activity', 'startedAt', 'updatedAt', 'observations', 'cleanup', 'failures', 'outcome']) || r.schemaVersion !== 3 || r.packageVersion !== PACKAGE_VERSION || ![r.sessionId, r.runRef, r.journeyId, r.target, ...(r.previousRunRef ? [r.previousRunRef] : [])].every(id) || !time(r.startedAt) || !time(r.updatedAt) || !['preparing', 'ready', 'working', 'needs-attention', 'closing', 'closed'].includes(r.activity) || !['not-attempted', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.cleanup) || !['pending', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.outcome) || !Array.isArray(r.observations) || !Array.isArray(r.failures))
+    if (!r || !exact(r, ['schemaVersion', 'packageVersion', 'sessionId', 'runRef', 'journeyId', 'journeyTitle', 'checkpoints', 'environment', 'origin', 'target', 'previousRunRef', 'selection', 'setup', 'replacementRequested', 'activity', 'startedAt', 'updatedAt', 'observations', 'cleanup', 'failures', 'outcome']) || r.schemaVersion !== 3 || r.packageVersion !== PACKAGE_VERSION || ![r.sessionId, r.runRef, r.journeyId, r.target, ...(r.previousRunRef ? [r.previousRunRef] : [])].every(id) || !time(r.startedAt) || !time(r.updatedAt) || !['preparing', 'ready', 'working', 'needs-attention', 'closing', 'closed'].includes(r.activity) || !['not-attempted', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.cleanup) || !['pending', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.outcome) || !Array.isArray(r.observations) || !Array.isArray(r.failures))
         throw Error('Invalid Moments result');
+    if (typeof r.journeyTitle !== 'string' || !r.journeyTitle.trim() || !Array.isArray(r.checkpoints) || !r.checkpoints.length
+        || !r.checkpoints.every(c => c && exact(c, ['id', 'title', 'actor', 'covers', 'private']) && id(c.id) && typeof c.title === 'string'
+            && (c.actor === undefined || recordLabel(c.actor, 120)) && (c.covers === undefined || (Array.isArray(c.covers) && c.covers.every((x: unknown) => typeof x === "string")))
+            && (c.private === undefined || c.private === true))
+        || (r.environment !== undefined && !recordLabel(r.environment, 80))
+        || typeof r.origin !== 'string' || new URL(r.origin).origin !== r.origin)
+        throw Error('Invalid Moments journey record');
     if (r.setup !== undefined) parseMomentSetup(r.setup);
     if (r.selection !== undefined) {
         const s = r.selection;

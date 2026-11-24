@@ -5,7 +5,7 @@ import { PACKAGE_VERSION } from './internal/protocol.js';
 import type { MomentResult } from './types.js';
 
 const at = '2026-11-24T00:00:00.000Z';
-const base: MomentResult = { schemaVersion: 3, packageVersion: PACKAGE_VERSION, sessionId: 's1', runRef: 'r2', journeyId: 'task', target: 'created',
+const base: MomentResult = { schemaVersion: 3, packageVersion: PACKAGE_VERSION, sessionId: 's1', runRef: 'r2', journeyId: 'task', journeyTitle: 'Task', checkpoints: [{ id: 'created', title: 'Created' }], origin: 'http://127.0.0.1:4177', target: 'created',
     activity: 'preparing', startedAt: at, updatedAt: at, observations: [], cleanup: 'not-attempted', failures: [], outcome: 'pending' };
 
 test('a run started from a catalogue selection keeps its receipt', () => {

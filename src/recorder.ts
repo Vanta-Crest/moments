@@ -13,6 +13,8 @@ export type Recorder = {
     /** Stops filming before driver code that may show any of these checkpoints without first entering them. */
     shield(checkpointIds: readonly string[]): Promise<void>;
     finish(): Promise<void>;
+    /** True while the screen is being filmed. */
+    filming(): boolean;
 };
 
 /**
@@ -21,7 +23,7 @@ export type Recorder = {
  * Frames come from the video stream: a page screenshot would disturb the recording. Best effort:
  * the first error stops recording with one warning and never reaches the run.
  */
-export function createRecorder(page: Page, dir: string, journey: JourneyDefinition, runRef: string, chapters: boolean): Recorder {
+export function createRecorder(page: Page, dir: string, journey: JourneyDefinition, runRef: string, chapters: boolean, system: { environment?: string; origin: string }): Recorder {
     const segments: { file: string; startedAt: string; lost?: true }[] = [], events: Mark[] = [], frames = new Set<string>();
     let started: number | undefined, stoppedEarly = false, finished = false, latest: Buffer | undefined;
     const checkpoint = (id: string) => journey.checkpoints.find(point => point.id === id);
@@ -66,6 +68,7 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
             const point = checkpoint(event.checkpointId)!;
             if (chapters) await page.screencast.showChapter(point.title, { ...(point.description ? { description: point.description } : {}), duration: CHAPTER_MS });
         }),
+        filming: () => started !== undefined,
         shield: ids => attempt(async () => {
             if (started !== undefined && ids.some(id => checkpoint(id)?.private)) { started = undefined; await page.screencast.stop(); }
         }),
@@ -80,9 +83,10 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
                     else segment.lost = true;
                 }
                 const timeline = {
-                    schemaVersion: 1, runRef, journeyId: journey.id, viewport: RECORDING_VIEWPORT, videoSize: VIDEO_SIZE,
+                    schemaVersion: 1, runRef, journeyId: journey.id, journeyTitle: journey.title, ...system, viewport: RECORDING_VIEWPORT, videoSize: VIDEO_SIZE,
                     ...(chapters ? { chapterMs: CHAPTER_MS } : {}), ...(stoppedEarly ? { stoppedEarly } : {}),
-                    checkpoints: journey.checkpoints.map(({ id, title, description, private: secret }) => ({ id, title, ...(description ? { description } : {}), ...(secret ? { private: true } : {}) })),
+                    checkpoints: journey.checkpoints.map(({ id, title, description, actor, covers, private: secret }) => ({ id, title, ...(description ? { description } : {}),
+                        ...(actor ? { actor } : {}), ...(covers ? { covers } : {}), ...(secret ? { private: true } : {}) })),
                     segments, events
                 };
                 await writeFile(path.join(dir, 'timeline.json'), JSON.stringify(timeline, null, 2) + '\n', { mode: 0o600 });
