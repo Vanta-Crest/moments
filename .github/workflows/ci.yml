@@ -50,6 +50,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      # The Director tests drive a real browser.
+      - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
       - run: node scripts/cli-proof.mjs
