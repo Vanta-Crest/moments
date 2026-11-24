@@ -114,7 +114,7 @@ const journey = { ...taskJourney, create(context: JourneyContext) {
       } else if (scenario === 'controls') {
         const panel = page.getByRole('complementary', { name: 'Moments', exact: true });
         const confirmation = panel.getByRole('group', { name: 'Confirm fresh run' });
-        const checkpoint = (title: string) => panel.getByRole('group', { name: 'Checkpoint', exact: true }).getByRole('radio', { name: new RegExp(`^${title},`) });
+        const checkpoint = (title: string) => panel.getByRole('group', { name: 'Checkpoints', exact: true }).getByRole('radio', { name: new RegExp(`^${title},`) });
         await page.setViewportSize({ width: 360, height: 740 });
         const dimensions = await panel.evaluate(element => {
           const rect = element.getBoundingClientRect();

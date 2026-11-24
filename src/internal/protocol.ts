@@ -176,7 +176,7 @@ export function describeMomentFailure(failure: NonNullable<MomentsView["failure"
         case "browser": return "The review browser could not be opened. Check browser availability, then start a new run.";
         case "create": return "The journey could not be prepared. Inspect the run receipt before starting again; preparation may have created resources.";
         case "enter": return `The action${at} did not finish successfully. Inspect the page and run receipt before restarting; the action may already have changed the product.`;
-        case "verify": return `Arrival${at} could not be verified.${checkpoint?.description ? ` Expected checkpoint: ${checkpoint.description}` : ""} Inspect the page, then use Recheck if available. Recheck observes the state without repeating the action.`;
+        case "verify": return `Could not confirm ${checkpoint ? `"${checkpoint.title}"` : failure.checkpointId ? `"${failure.checkpointId}"` : "the checkpoint"}.${checkpoint?.description ? ` Expected: ${checkpoint.description}` : ""} Nothing was repeated. Look at the application; if the screen is right, press Check this state, which looks again without repeating the action.`;
         case "reconcile": return `The page no longer matches the prepared state${at}. Restore the prepared fields or return to the current step, then recheck. No further step was submitted.`;
         case "cleanup": return "Cleanup could not be confirmed. Inspect the run receipt for remaining resources before starting another run.";
         case "persist": return "The run receipt could not be saved. Check receipt storage before continuing; durable recovery is not established.";

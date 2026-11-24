@@ -34,15 +34,17 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
   const current = view?.checkpoints.find(point => point.id === view.lastVerified?.checkpointId);
   const currentIndex = view?.checkpoints.findIndex(point => point.id === current?.id) ?? -1;
   const selectedId = selection.runRef === view?.runRef && view?.checkpoints.some(point => point.id === selection.id)
-    ? selection.id : current?.id ?? view?.checkpoints[0]?.id ?? "";
+    ? selection.id : view?.failure?.checkpointId ?? current?.id ?? view?.checkpoints[0]?.id ?? "";
   const selected = view?.checkpoints.find(point => point.id === selectedId);
   const selectedIndex = view?.checkpoints.findIndex(point => point.id === selectedId) ?? -1;
   const playing = view?.playback.kind === "playing" ? view.playback : undefined;
-  const failedTitle = view?.checkpoints.find(point => point.id === view.failure?.checkpointId)?.title;
+  const failedIndex = view?.checkpoints.findIndex(point => point.id === view.failure?.checkpointId) ?? -1;
   const next = view?.checkpoints.find(point => point.id === view.nextId);
   const last = view?.checkpoints.at(-1);
   const playToSelection = selectedIndex > currentIndex && selected?.opening === "reuse";
-  const allowed = (condition?: boolean) => connected && !!view?.runRef && !sending && !!condition;
+  // `able` ignores a command in flight, so a button stays focusable (aria-disabled) instead of dropping focus.
+  const able = (condition?: boolean) => connected && !!view?.runRef && !!condition;
+  const allowed = (condition?: boolean) => able(condition) && !sending;
   const openAllowed = !!selected && selected.opening !== "unavailable"
     && (selected.opening !== "fresh-run" || !!view?.controls.restart);
   const confirmed = confirmation && connected && confirmation.intent.runRef === view?.runRef
@@ -130,8 +132,8 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
     : playing?.pauseRequested ? "Pausing after the current step…"
     : view?.progress === "waiting-for-code" ? "Waiting for a fresh authenticator code…"
     : playing?.phase === "waiting" ? "Waiting briefly before the next step…"
-    : view?.activity === "ready" ? view.nextId ? "Ready to explore" : "Final checkpoint verified. Keep exploring or end the session."
-    : view?.activity === "needs-attention" ? "Stopped. Review the problem below, then check this state or restart."
+    : view?.activity === "ready" ? view.nextId ? "Ready. Explore the application, or continue." : "Every checkpoint is verified. Keep exploring or end the session."
+    : view?.activity === "needs-attention" ? "Stopped."
     : view?.destinationId ? `Working on ${view.checkpoints.find(point => point.id === view.destinationId)?.title ?? view.destinationId}…`
     : view?.activity.replaceAll("-", " ");
   // One word for the badge; the sentence above stays the announced status.
@@ -139,9 +141,13 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
     : view?.progress === "waiting-for-code" ? "waiting" : view?.activity === "ready" ? view.nextId ? "ready" : "done"
     : view?.activity === "closed" ? "idle" : "working";
   const badge = !connected ? connection.kind === "connecting" ? "Connecting" : "Offline"
-    : { attention: "Needs attention", waiting: "Waiting for code", ready: "Ready", done: "Finished", working: playing ? "Playing" : "Working", idle: "Closed" }[tone];
+    : { attention: "Needs attention", waiting: "Waiting for code", ready: "Ready", done: "All verified", working: playing ? "Playing" : "Working", idle: "Closed" }[tone];
   const working = view && !["ready", "needs-attention", "closed"].includes(view.activity) ? view.destinationId : undefined;
-  const passed = view?.checkpoints.filter(point => point.status === "passed").length ?? 0;
+  const headline = !view ? "" : failedIndex >= 0 ? `Stopped at ${failedIndex + 1} of ${view.checkpoints.length}: ${view.checkpoints[failedIndex]!.title}`
+    : current ? `Checkpoint ${currentIndex + 1} of ${view.checkpoints.length}: ${current.title}` : "No checkpoint verified yet";
+  const host = view?.origin?.replace(/^https?:\/\//, "");
+  const footerButton = (condition: boolean | undefined, command: () => void) => ({
+    disabled: !able(condition), "aria-disabled": sending || undefined, onClick: () => { if (!sending) command(); } });
 
   return <aside className={standalone ? "moments-package moments-package--standalone" : "moments-package"} aria-label="Moments" ref={root} onKeyDown={event => {
     if (event.key === "Escape" && !collapsed) {
@@ -154,9 +160,13 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
         <div className="moments-package__row">
           <span className="moments-package__kicker">Moments</span>
           <span className="moments-package__badge"><span className="moments-package__dot" aria-hidden="true" />{badge}</span>
+          {view?.recording && <span className="moments-package__badge moments-package__badge--film" data-filming={view.recording === "filming" || undefined}
+            title={view.recording === "filming" ? "The application window is being filmed." : "Filming is paused: this step is private."}>
+            <span className="moments-package__dot" aria-hidden="true" />{view.recording === "filming" ? "Filming" : "Not filming"}</span>}
           {!standalone && <button type="button" className="moments-package__quiet" ref={collapseButton} aria-expanded={true} aria-controls={panelId} onClick={collapse}>Collapse</button>}
         </div>
-        <strong className="moments-package__journey">{view?.journey.title ?? "Moments"}</strong>
+        <h2 className="moments-package__journey">{view?.journey.title ?? "Moments"}</h2>
+        {host && <p className="moments-package__system">{view?.environment && <span>{view.environment}</span>}<code>{host}</code></p>}
         {view && <div className="moments-package__meter" aria-hidden="true">
           {view.checkpoints.map(point => <span key={point.id} data-status={point.status} data-working={point.id === working || undefined} />)}
         </div>}
@@ -172,64 +182,72 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
         {connection.kind === "disconnected" && <p>Runner connection interrupted. Controls return when it reconnects. Actions will not be replayed.</p>}
       </div>
       {view && <>
-        <p className="moments-package__checkpoint">{current ? `Checkpoint ${currentIndex + 1} of ${view.checkpoints.length}: ${current.title}` : `No checkpoint verified yet · ${passed} of ${view.checkpoints.length}`}</p>
+        <p className="moments-package__checkpoint">{headline}</p>
         <p role="status" className="moments-package__status">{status}</p>
-        {(view.failure || view.message) && <div className="moments-package__alert">
-          {view.failure && (view.failure.detail
-            ? <p role="alert"><strong>{failedTitle ? `Checkpoint "${failedTitle}" failed` : "Failed"} at {view.failure.stage}</strong><span className="moments-package__detail">{view.failure.detail}</span></p>
-            : <p role="alert"><strong>Needs attention: {view.failure.stage}{view.failure.checkpointId ? ` at ${view.failure.checkpointId}` : ""}.</strong></p>)}
+        {view.message && <div className="moments-package__alert" role="alert">
+          <p>{view.message}</p>
+          {view.failure?.detail && <details className="moments-package__technical"><summary>Technical detail</summary>
+            <p className="moments-package__detail">{view.failure.detail}</p></details>}
           {view.failure?.evidence && <Evidence path={view.failure.evidence} />}
-          {view.message && <p role="alert" className="moments-package__guidance">{view.message}</p>}
         </div>}
         <fieldset className="moments-package__steps">
-          <legend>Checkpoint</legend>
+          <legend>Checkpoints</legend>
           <ol>{view.checkpoints.map((point, index) => {
             const chosen = point.id === selectedId, here = point.id === current?.id;
             const state = point.id === working ? "working" : point.status;
+            const next = point.id === view.nextId && !working && !view.failure;
+            const seen = point.observed && point.status !== "failed" ? `${how[point.observed.provenance]} · ${clock(point.observed.at)}` : undefined;
             return <li key={point.id} data-state={state} data-selected={chosen || undefined}>
               <label>
                 <input type="radio" name={`${panelId}-checkpoint`} value={point.id} checked={chosen}
-                  aria-label={[point.title, state === "working" ? "in progress" : point.status.replaceAll("-", " "), here && "current", point.id === view.nextId && !working && !view.failure && "next"].filter(Boolean).join(", ")} onChange={() => {
+                  aria-label={[point.title, state === "working" ? "in progress" : point.status.replaceAll("-", " "), seen, here && "current", next && "next", point.private && "private"].filter(Boolean).join(", ")} onChange={() => {
                   setSelection({ ...(view.runRef ? { runRef: view.runRef } : {}), id: point.id });
                   setConfirmation(undefined);
                 }} />
                 <span className="moments-package__mark" aria-hidden="true">{state === "passed" ? "✓" : state === "failed" ? "!" : state === "skipped" ? "–" : index + 1}</span>
                 <span className="moments-package__title">{point.title}
                   {here && <span className="moments-package__tag">Current</span>}
-                  {point.id === view.nextId && !working && !view.failure && <span className="moments-package__tag" data-next>Next</span>}
+                  {next && <span className="moments-package__tag" data-quiet>Next</span>}
+                  {point.private && <span className="moments-package__tag" data-quiet>Private</span>}
+                  {seen && <span className="moments-package__seen">{seen}</span>}
                 </span>
               </label>
               {chosen && <div className="moments-package__detailpane">
+                {point.actor && <p className="moments-package__actor">{point.actor}</p>}
                 {point.description && <p>{point.description}</p>}
-                {point.opening === "fresh-run" && <p className="moments-package__hint">Opening this checkpoint starts a fresh run and ends the current exploration.</p>}
-                <div className="moments-package__row">
-                  <button type="button" ref={openButton} data-tone={selected?.opening === "fresh-run" ? "caution" : undefined}
-                    disabled={!allowed(openAllowed && (!playToSelection || view.controls.play))}
-                    onClick={() => selected?.opening === "fresh-run" ? confirm({ kind: "open", checkpointId: selectedId })
-                      : playToSelection ? send({ kind: "play", checkpointId: selectedId, pace }) : send({ kind: "open", checkpointId: selectedId })}>
-                    {selected?.opening === "fresh-run" ? "Start fresh here" : playToSelection ? "Play to checkpoint" : "Open checkpoint"}
-                  </button>
-                  <button type="button" className="moments-package__quiet" data-tone="caution" ref={restartButton} disabled={!allowed(view.controls.restart && !!selected)} onClick={() => confirm({ kind: "restart", checkpointId: selectedId })}>Restart at checkpoint</button>
-                </div>
+                {point.opening === "fresh-run" ? <>
+                  <p className="moments-package__hint">This checkpoint is behind the current one: opening it starts a fresh run and ends this one.</p>
+                  <div className="moments-package__row">
+                    <button type="button" ref={openButton} data-tone="caution" disabled={!allowed(openAllowed)} onClick={() => confirm({ kind: "open", checkpointId: selectedId })}>Start fresh here</button>
+                  </div>
+                </> : <div className="moments-package__row">
+                  {!here && point.opening !== "unavailable" && <button type="button" ref={openButton} disabled={!allowed(openAllowed && (!playToSelection || view.controls.play))}
+                    onClick={() => playToSelection ? send({ kind: "play", checkpointId: selectedId, pace }) : send({ kind: "open", checkpointId: selectedId })}>
+                    {playToSelection ? "Play to checkpoint" : "Open checkpoint"}</button>}
+                  <button type="button" className="moments-package__quiet" data-tone="caution" ref={restartButton} disabled={!allowed(view.controls.restart && !!selected)}
+                    title="Start a new run at this checkpoint and end this one" onClick={() => confirm({ kind: "restart", checkpointId: selectedId })}>Restart at checkpoint</button>
+                </div>}
+                {confirmed && <div className="moments-package__confirmation" role="group" aria-label="Confirm fresh run">
+                  <p>Start a fresh run at {selected?.title}? This ends the current run. Your exploration will not carry over.{view.journey.restartExplanation && ` ${view.journey.restartExplanation}`}{draft.changed && " Your unapplied value changes will be discarded."}</p>
+                  <div className="moments-package__row">
+                    <button type="button" data-tone="caution" disabled={!allowed(view.controls.restart)} onClick={() => { setConfirmation(undefined); void submit(confirmed.intent); }}>Start fresh</button>
+                    <button type="button" ref={cancelButton} onClick={draft.changed ? openValues : dismissConfirmation}>{draft.changed ? "Back to values" : "Keep exploring"}</button>
+                  </div>
+                </div>}
               </div>}
             </li>;
           })}</ol>
         </fieldset>
-        {confirmed && <div className="moments-package__confirmation" role="group" aria-label="Confirm fresh run">
-          <p>Start a fresh run at {selected?.title}? This ends the current run. Your exploration will not carry over.{view.journey.restartExplanation && ` ${view.journey.restartExplanation}`}{draft.changed && " Your unapplied value changes will be discarded."}</p>
-          <div className="moments-package__row">
-            <button type="button" data-tone="caution" disabled={!allowed(view.controls.restart)} onClick={() => { setConfirmation(undefined); void submit(confirmed.intent); }}>Start fresh</button>
-            <button type="button" ref={cancelButton} onClick={draft.changed ? openValues : dismissConfirmation}>{draft.changed ? "Back to values" : "Keep exploring"}</button>
-          </div>
-        </div>}
         {draft.setup && <p><button type="button" className="moments-package__quiet" data-moments-values aria-label="Run values" onClick={openValues}>Run values · {draft.summary}</button>{draft.changed && <span className="moments-package__tag">Draft changes</span>}</p>}
         {draft.unavailable && <p>Run values are unavailable because their definition does not match this session.</p>}
         <details>
           <summary>Session details</summary>
           <dl>
             <dt>Run reference</dt><dd><code>{view.runRef ?? "Preparing"}</code></dd>
+            {view.environment && <><dt>Environment</dt><dd>{view.environment}</dd></>}
+            {view.origin && <><dt>Address</dt><dd><code>{view.origin}</code></dd></>}
             <dt>Activity</dt><dd>{view.activity.replaceAll("-", " ")}</dd>
-            <dt>Last verified</dt><dd>{view.lastVerified ? <time dateTime={view.lastVerified.at}>{new Date(view.lastVerified.at).toLocaleTimeString()}</time> : "Not checked"}</dd>
+            <dt>Last verified</dt><dd>{view.lastVerified ? <time dateTime={view.lastVerified.at}>{new Date(view.lastVerified.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" })}</time> : "Not checked"}</dd>
           </dl>
           {draft.setup && <><p>Export checkpoint: {(current ?? view.checkpoints[0])?.title}</p>
             <p>Includes active autofill values. Manual product edits and draft changes are not included.</p>
@@ -241,10 +259,10 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
       </div>
       {view && <footer className="moments-package__footer">
         <div className="moments-package__row">
-          <button type="button" data-tone="primary" disabled={!allowed(view.controls.continue)} onClick={() => send({ kind: "continue" })}>Continue</button>
-          <button type="button" disabled={!allowed(view.controls.check)} onClick={() => send({ kind: "check" })}>Check this state</button>
-          {playing ? <button type="button" disabled={!allowed(view.controls.pause)} onClick={() => send({ kind: "pause" })}>{playing.pauseRequested ? "Pausing…" : "Pause"}</button>
-            : <button type="button" disabled={!allowed(view.controls.play && !!last)} onClick={() => { if (last) send({ kind: "play", checkpointId: last.id, pace }); }}>Play journey</button>}
+          <button type="button" data-tone="primary" {...footerButton(view.controls.continue, () => send({ kind: "continue" }))}>Continue</button>
+          <button type="button" {...footerButton(view.controls.check, () => send({ kind: "check" }))}>Check this state</button>
+          {playing ? <button type="button" {...footerButton(view.controls.pause, () => send({ kind: "pause" }))}>{playing.pauseRequested ? "Pausing…" : "Pause"}</button>
+            : <button type="button" {...footerButton(view.controls.play && !!last, () => { if (last) send({ kind: "play", checkpointId: last.id, pace }); })}>Play journey</button>}
         </div>
         <div className="moments-package__row moments-package__row--split">
           <fieldset className="moments-package__pace">
@@ -252,7 +270,7 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
             {([["immediate", "Straight through"], ["demo", "With pauses"]] as const).map(([value, text]) =>
               <label key={value}><input type="radio" name={`${panelId}-pace`} value={value} checked={pace === value} onChange={() => setPace(value)} />{text}</label>)}
           </fieldset>
-          <button type="button" className="moments-package__quiet" data-tone="end" disabled={!allowed(view.controls.end)} onClick={() => send({ kind: "end" })}>End session</button>
+          <button type="button" className="moments-package__quiet" data-tone="end" {...footerButton(view.controls.end, () => send({ kind: "end" }))}>End session</button>
         </div>
       </footer>}
       </>}
@@ -265,6 +283,9 @@ export function MomentsPanel({ defaultCollapsed, standalone }: MomentsPanelProps
     </div>}
   </aside>;
 }
+
+const how = { native: "Moments", manual: "By hand", existing: "Already there" } as const;
+const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 type Tone = "ready" | "working" | "waiting" | "attention" | "done" | "idle";
 
