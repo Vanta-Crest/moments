@@ -8,7 +8,12 @@ export const RECORDING_VIEWPORT = { width: 1280, height: 720 } as const;
 const VIDEO_SIZE = { width: 1920, height: 1080 } as const;
 const CHAPTER_MS = 2_000;
 type Mark = MomentEvent & { segment?: number; offsetMs?: number; frame?: string };
-export type Recorder = { observe(event: MomentEvent): Promise<void>; finish(): Promise<void> };
+export type Recorder = {
+    observe(event: MomentEvent): Promise<void>;
+    /** Stops filming before driver code that may show any of these checkpoints without first entering them. */
+    shield(checkpointIds: readonly string[]): Promise<void>;
+    finish(): Promise<void>;
+};
 
 /**
  * Records one run into `dir`: a WebM segment per stretch between private checkpoints, the video
@@ -60,6 +65,9 @@ export function createRecorder(page: Page, dir: string, journey: JourneyDefiniti
             }
             const point = checkpoint(event.checkpointId)!;
             if (chapters) await page.screencast.showChapter(point.title, { ...(point.description ? { description: point.description } : {}), duration: CHAPTER_MS });
+        }),
+        shield: ids => attempt(async () => {
+            if (started !== undefined && ids.some(id => checkpoint(id)?.private)) { started = undefined; await page.screencast.stop(); }
         }),
         async finish() {
             await attempt(async () => { if (started !== undefined) { started = undefined; await page.screencast.stop(); } });

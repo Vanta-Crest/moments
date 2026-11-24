@@ -7,7 +7,7 @@ import { PACKAGE_VERSION, describeMomentFailure, parseMomentCommandRequest, type
 import { createWriter } from './writer.js';
 import { BrowserSetupFailure } from './internal/browser-failure.js';
 import { MomentSetupError, resolveSetup, type MomentSetup } from './setup.js';
-import { EVIDENCE_STAGES, captureEvidence, evidenceRoot, type FailureEvidence } from './evidence.js';
+import { EVIDENCE_STAGES, FILE_ONLY_STAGES, captureEvidence, evidenceRoot, type FailureEvidence } from './evidence.js';
 export type OwnedBrowser = {
     page: Page;
     focus?(): Promise<void>;
@@ -110,7 +110,8 @@ class Session implements MomentSession {
     }; this.destination = destination; this.revision++; }
     private failureRecord(stage: FailureStage, checkpointId?: string, code: MomentResult['failures'][number]['code'] = 'operation-failed', evidence?: FailureEvidence) {
         this.failure = {
-            stage, ...(checkpointId ? { checkpointId } : {}), ...(evidence ? { detail: evidence.summary, evidence: evidence.file } : {})
+            stage, ...(checkpointId ? { checkpointId } : {}),
+            ...(evidence ? { ...(FILE_ONLY_STAGES.includes(stage) ? {} : { detail: evidence.summary }), evidence: evidence.file } : {})
         };
         this.result = {
             ...this.result, failures: [...this.result.failures, {
@@ -511,6 +512,7 @@ class Session implements MomentSession {
         this.stage = 'verify';
         const probe = this.config.resumeProbeTimeoutMs ?? 3_000, { navigationTimeoutMs, actionTimeoutMs } = this.config;
         this.pageTimeouts(probe, probe);
+        await this.recorder?.shield([this.destination]);
         try { await this.driver!.verify(this.destination); }
         catch { return false; }
         // Playwright has no timeout getter: restore the configured values, else its 30 s library default.
@@ -521,6 +523,8 @@ class Session implements MomentSession {
     }
     private async reconcilePosition(verifyHeld = false) {
         this.stage = 'reconcile';
+        // The driver may verify any later checkpoint to answer; never film one that is private.
+        await this.recorder?.shield(this.definition.checkpoints.slice(this.position + 1).map(point => point.id));
         const observed = this.index(await this.driver!.reconcile());
         if (observed < this.position) throw Error('Reconciliation moved behind');
         const adopted = observed > this.position;

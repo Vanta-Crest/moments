@@ -4,8 +4,10 @@ import type { Page } from '@playwright/test';
 import type { FailureStage, MomentsConfig } from './types.js';
 
 export const BLANK_PAGE = 'The page was blank: the application server may not be responding.';
-/** Stages that run driver code against the managed page; the others keep their safe description only. */
-export const EVIDENCE_STAGES: readonly FailureStage[] = ['create', 'enter', 'verify', 'reconcile', 'cleanup'];
+/** Stages whose thrown message is the author's or the browser's own; the others keep their safe description only. */
+export const EVIDENCE_STAGES: readonly FailureStage[] = ['admission', 'browser', 'create', 'enter', 'verify', 'reconcile', 'cleanup'];
+/** Prerequisite checks often read environment secrets: their message stays in the private file, never on screen. */
+export const FILE_ONLY_STAGES: readonly FailureStage[] = ['admission'];
 export type FailureEvidence = { summary: string; relative: string; file: string };
 
 /** Local evidence directory, or undefined when disabled or a custom receipt writer has no filesystem home. */
@@ -34,8 +36,8 @@ export async function captureEvidence(root: string, runRef: string, stem: string
     const summary = blank ? `${line}${/[.!?]$/.test(line) ? '' : '.'} ${BLANK_PAGE}` : line;
     const directory = path.join(root, runRef);
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    let screenshot: string;
-    try {
+    let screenshot = 'not available (no page was open)';
+    if (page) try {
         const png = path.join(directory, `${stem}.png`);
         await writeFile(png, await page!.screenshot({ fullPage: true, timeout: 5_000 }), { mode: 0o600 });
         screenshot = png;

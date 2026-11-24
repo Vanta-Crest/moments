@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { defineJourney } from './runner.js';
 import type { MomentsConfig } from './types.js';
 
@@ -59,7 +59,8 @@ export async function loadConfig(configPath?: string, cwd = process.cwd()): Prom
             value = value.default;
         }
     } catch {
-        throw new ConfigError('Could not load the config. Check its syntax, imports, and default export.');
+        // The thrown text may quote environment values, so it is not printed here.
+        throw new ConfigError(`Could not load the config. Check its syntax, imports, and default export; \`npx tsx ${basename(path)}\` shows the full error.`);
     }
     validateConfig(value);
     const evidenceDir = typeof value.evidenceDir === 'string' ? { evidenceDir: resolve(dirname(path), value.evidenceDir) } : {};

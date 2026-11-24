@@ -689,7 +689,7 @@ function filmedPage(failStart = false) {
             stop: async () => { state.filming = false; },
             showChapter: async () => {}
         },
-        isClosed: () => false
+        isClosed: () => false, setDefaultTimeout: () => {}, setDefaultNavigationTimeout: () => {}
     };
     return { state, page: page as unknown as Page };
 }
@@ -700,7 +700,7 @@ function filmedJourney(state: { filming: boolean }, seen: string[]) {
         create: (): JourneyDriver => ({
             enter: async id => { seen.push(`enter ${id} ${state.filming}`); },
             verify: async id => { seen.push(`verify ${id} ${state.filming}`); },
-            reconcile: async () => 'public', cleanup: async () => 'complete'
+            reconcile: async () => { seen.push(`reconcile ${state.filming}`); return 'public'; }, cleanup: async () => 'complete'
         })
     };
 }
@@ -730,4 +730,40 @@ test('a recording failure never fails the run', async () => {
         assert.equal(result.outcome, 'complete');
         assert.equal(JSON.parse(await readFile(join(dir, result.runRef, 'recording', 'timeline.json'), 'utf8')).stoppedEarly, true);
     } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test('checks that may show a private checkpoint are never filmed', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'moments-record-'));
+    try {
+        // Resume probes each checkpoint with verify and no enter.
+        const resumed = filmedPage(), probed: string[] = [];
+        const first = await openWithBrowser({ baseURL: 'http://localhost:3000', beforeRun: async () => {}, evidenceDir: dir, journeys: [filmedJourney(resumed.state, probed)], writeReceipt: async () => {} },
+            { target: 'filmed.after', once: true, resume: true, record: {} }, async () => ({ page: resumed.page, close: async () => {} }));
+        assert.equal((await first.done).outcome, 'complete');
+        assert.deepEqual(probed.filter(call => call.includes('secret')), ['verify secret false']);
+        // Check asks the driver where the run is; a driver may verify later, private checkpoints to answer.
+        const held = filmedPage(), checked: string[] = [];
+        const s = await openWithBrowser({ baseURL: 'http://localhost:3000', beforeRun: async () => {}, evidenceDir: dir, journeys: [filmedJourney(held.state, checked)], writeReceipt: async () => {} },
+            { target: 'filmed.public', record: {} }, async () => ({ page: held.page, close: async () => {} }));
+        await s.settled();
+        assert.equal(held.state.filming, true);
+        const v = s.view();
+        assert.equal(s.command({ runRef: v.runRef!, revision: v.revision, command: { kind: 'check' } }).accepted, true);
+        await s.settled();
+        assert.deepEqual(checked.filter(call => call.startsWith('reconcile')), ['reconcile false']);
+        await s.end();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});
+test('a failed prerequisite keeps the author\'s own message as local evidence', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'moments-evidence-'));
+    try {
+        let failed: MomentResult | undefined;
+        await assert.rejects(openWithBrowser({ baseURL: 'http://localhost:3000', outputDir: join(root, 'runs'),
+            beforeRun: async () => { throw Error('Start the task app first: npm start'); }, journeys: [failingJourney({})] },
+            { target: 'evidence.first', once: true }, async () => { throw Error('no browser expected'); }), (error: { result?: MomentResult }) => { failed = error.result; return true; });
+        const failure = failed!.failures[0]!;
+        assert.equal(failure.stage, 'admission');
+        const text = await readFile(join(root, 'evidence', failure.evidence!), 'utf8');
+        assert.equal(text.split('\n')[0], 'Start the task app first: npm start');
+        assert.match(text, /Screenshot: not available \(no page was open\)/);
+    } finally { await rm(root, { recursive: true, force: true }); }
 });

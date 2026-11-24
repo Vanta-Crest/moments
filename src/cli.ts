@@ -5,7 +5,7 @@ import { describeMomentFailure } from './internal/protocol.js';
 import type { MomentEvent, MomentsConfig, MomentResult } from './types.js';
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { evidenceRoot } from './evidence.js';
+import { FILE_ONLY_STAGES, evidenceRoot } from './evidence.js';
 import { MAX_SETUP_BYTES, formatSetupIssues, MomentSetupError, parseSetupFile, type MomentSetupFile } from './setup.js';
 
 const help = `Usage:
@@ -155,10 +155,10 @@ async function reportResult(result: MomentResult, config: MomentsConfig): Promis
         process.stderr.write(`Moments: needs attention at ${stages}. Inspect the run receipt for details.\n`);
         for (const failure of result.failures) {
             const checkpoint = journey?.checkpoints.find(point => point.id === failure.checkpointId);
-            const file = evidence(failure.evidence), detail = file && await firstLine(file);
+            const file = evidence(failure.evidence), detail = file && !FILE_ONLY_STAGES.includes(failure.stage) && await firstLine(file);
             process.stderr.write(file && detail
                 ? `${checkpoint ? `Checkpoint "${checkpoint.title}" failed` : 'Run failed'} at ${failure.stage}: ${detail} (evidence: ${file})\n`
-                : `${describeMomentFailure(failure, checkpoint)}\n`);
+                : `${describeMomentFailure(failure, checkpoint)}${file ? ` The message is in ${file}` : ''}\n`);
         }
         if (result.failures.some(failure => failure.code === 'persistence-failed'))
             process.stderr.write('Moments: receipt persistence failed; durable recovery was not established.\n');

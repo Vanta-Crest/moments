@@ -43,7 +43,8 @@ try {
     run(['list'], esm, 0, 'task.flow.draft');
     run(['list', '--config', '../moments.config.ts'], child, 0, 'task.flow.draft');
     run(['open', 'task.flow.missing'], plain, 2, 'Unknown target');
-    run(['open', 'task.flow.draft', '--once'], plain, 1, 'needs attention at admission');
+    // The prerequisite's own message stays in the private evidence file; the terminal names the file.
+    run(['open', 'task.flow.draft', '--once'], plain, 1, 'The message is in ');
     run(['open', 'task.flow.draft', '--once', '--config', '../moments.config.ts'], child, 1, 'needs attention at admission');
     const receiptDir = join(plain, '.moments', 'runs');
     const receiptFiles = async () => (await readdir(receiptDir)).filter(file => file !== 'latest.json');
