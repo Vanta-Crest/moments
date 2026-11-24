@@ -1,17 +1,19 @@
 # Moments
 
-Open a real application at a verified checkpoint, explore by hand, then continue
-the same journey. Moments coordinates browser and run lifecycle; your driver
-performs application actions, verifies outcomes and cleans up its own resources.
+Moments drives a real web application through a journey of checkpoints, proves each checkpoint from the application itself, and keeps a record of what was proven, by whom and on which system. It is for teams who must show an application working, to a reviewer, a client or an auditor, and who want to start exploring from a known, verified state instead of setting it up by hand.
 
-Moments can also film a run: a private video of the real screens, a timeline
-tying it to the run's verified checkpoints, and one frame per checkpoint.
+## Why
 
-`npm install --save-dev @vanta-crest/moments @playwright/test` (Apache-2.0).
+- **A checkpoint passes only when it is proven.** Your code verifies it from the product's own screens or API. A step that ran is not a step that was proven.
+- **People can take over.** In an interactive run, a reviewer uses the application by hand. Moments verifies what they did before adopting it, records it as done by hand, and never repeats it.
+- **Every run leaves a record a reviewer can trust.** The receipt names the system, the journey, who acts at each checkpoint, how and when each was verified, what each proves, and whether cleanup completed. Fingerprints show later whether anything has changed. Secrets and screenshots never enter it.
+- **Your application stays in charge.** Your driver performs every action. Moments sequences the steps, holds the browser and keeps the record.
 
-## Try it: record a walkthrough of the task app
+Moments is built on [Playwright](https://playwright.dev). It runs locally. There is no service, account or telemetry.
 
-Use Node 24. You need nothing else: no account, token or cloud service.
+## Try it in five minutes
+
+You need Node 22 or newer and git.
 
 ```sh
 git clone https://github.com/Vanta-Crest/moments.git
@@ -22,113 +24,57 @@ npm run build
 npm start
 ```
 
-Keep the app running. In a second terminal, in `moments/examples/task-app`:
+Leave the app running. In a second terminal, in `moments/examples/task-app`:
 
 ```sh
 npx moments open task.completed --once --record --chapters
+npx moments report
 ```
 
-Moments creates a task, completes it and deletes it again, printing a line as each
-checkpoint is entered and verified. The last line is `Recording: <folder>`. Open
-`segment-1.webm` from that folder in a web browser: each checkpoint's title
-appears on screen at the moment it was verified. The folder also holds
-`timeline.json` and a frame per verified checkpoint. It is private (`0700`):
-a recording shows everything on screen, so review it before sharing.
+Moments creates a task, completes it and deletes it again, printing a line as each checkpoint is entered and verified. `report` prints the path of a run sheet: open it in a browser to see each checkpoint, how it was verified and the frame from the recording. It shows screens, so it is private to you.
 
-To explore by hand instead:
+Now take over by hand:
 
 ```sh
-npx moments list
 npx moments open task.created
 ```
 
-Moments creates and verifies a task in a managed browser. Click **Complete task**
-yourself, then **Continue** to verify and adopt manual progress. **End session**
-deletes only this run's task and closes the browser.
+A browser opens with a task created and verified. Click **Complete task** yourself, then open the Moments panel with **Show Moments** and press **Continue**: Moments verifies your change and records it as done by hand. **End session** deletes only this run's task and closes the browser.
 
-`--once` runs headless, verifies the target, cleans up and prints the result: one
-line per checkpoint (passed, skipped, failed, not reached) and, for a failure,
-the checkpoint, stage, thrown message and a local evidence file with the page URL
-and a screenshot. `.moments/runs/latest.json` points at the run's JSON receipt,
-evidence and recording. Incomplete runs exit 1. The example uses real HTTP and
-backend state without accounts, providers or cloud services.
-
-Useful `open` flags on slow or shared stacks:
-
-- `--resume` verifies each checkpoint before entering it and skips the ones that
-  already exist, instead of replaying every earlier step. See
-  [resuming](docs/authoring.md#resuming-a-journey) for when a journey supports it.
-- `--output <dir>` writes this run's receipts elsewhere, so parallel runs of one
-  config do not collide.
-- `--record` films the run; mark sign-in and secret screens `private`. See
-  [recording a run](docs/authoring.md#recording-a-run).
-
-## Add it to your application
-
-Install Moments and `@playwright/test` as development dependencies, then run
-`npx playwright install chromium`. Create an ordered driver and a cwd
-`moments.config.ts`:
-
-```ts
-import { defineConfig } from "@vanta-crest/moments";
-import { task } from "./task-journey.js";
-
-export default defineConfig({
-  baseURL: "http://127.0.0.1:4177",
-  journeys: [task],
-  async beforeRun() {
-    const response = await fetch("http://127.0.0.1:4177/api/health");
-    if (!response.ok) throw new Error("Application unavailable");
-  },
-});
-```
-
-Run `npx moments list` and `npx moments open task.created`. Use `--config path` for another
-file. Receipt paths resolve beside the config; parent directories are not searched.
-
-Optional development controls:
-
-```tsx
-import { MomentsPanel } from "@vanta-crest/moments/react";
-import "@vanta-crest/moments/styles.css";
-
-export function DevelopmentControls() {
-  return <MomentsPanel />;
-}
-```
-
-React is unnecessary for the Node runner. Keep controls out of production. The
-panel connects only in the runner-owned page at the configured origin.
-The panel sits in normal document flow. Give it its own area beside or below your
-application so it cannot cover controls used by the journey.
-
-If the journey leaves one origin (single sign-on, a mailbox, another portal), or the
-application must not embed test controls, set `director: true` in the config. An
-interactive run then opens a separate Moments Director window with the same controls
-and keeps working on every origin. Application pages get no Moments bridge at all,
-so remove an embedded panel or ignore its "not connected" state.
-
-Read the [authoring guide](docs/authoring.md), [reference](docs/reference.md),
-[troubleshooting](docs/troubleshooting.md), and [roadmap](ROADMAP.md).
-
-## Development
+## Install
 
 ```sh
-npm install
-npm run build
-npm test
-node scripts/cli-proof.mjs
-npm pack --pack-destination .release
-cd examples/task-app
-npm install --no-save ../../.release/vanta-crest-moments-*.tgz
-npm run build
-npm run proof
+npm install --save-dev @vanta-crest/moments @playwright/test
+npx playwright install chromium
 ```
 
-The example names the published package; installing the packed tarball over it
-proves this checkout instead.
+| Requirement | Supported |
+| --- | --- |
+| Node | 22 or newer; tested on 22, 24 and 26 |
+| Playwright | `@playwright/test` 1.60 or a later 1.x, with Chromium |
+| React | 18.3 or 19, only for the optional panel |
+| Operating system | Linux, macOS and Windows. The full browser proof runs on Linux and macOS; core tests and the CLI proof run on all three. |
 
-The example proof exercises the CLI, managed browser, real HTTP service, backend
-state and cleanup. Core tests retain distinct lifecycle/persistence failures.
-Tested baseline: Node 24, Playwright 1.60, React 18.3. Linux support requires its
-CI proof; do not infer it from the macOS run.
+On Linux, `npx playwright install --with-deps chromium` also installs the system libraries Chromium needs.
+
+## Documentation
+
+Start with [Your first journey](docs/first-journey.md), then read [Concepts](docs/concepts.md).
+
+| Guide | When you need it |
+| --- | --- |
+| [Writing journeys](docs/guides/writing-journeys.md) | The driver contract, adoption, cleanup, checkpoint fields |
+| [Evidence and review](docs/guides/evidence-and-review.md) | Receipts, failure evidence, `verify`, `report`, traceability, retention |
+| [Recording](docs/guides/recording.md) | Filming a run and exactly what is and is not filmed |
+| [Sign-in and the Director](docs/guides/sign-in-and-director.md) | Journeys that leave your origin, credentials, one-time codes |
+| [Resume](docs/guides/resume.md) | Skipping checkpoints that are already true |
+| [Run values](docs/guides/run-values.md) | Letting a reviewer change the text a journey types |
+| [Presenting](docs/guides/presenting.md) | Showing a journey live |
+| [React panel](docs/guides/react-panel.md) | Embedding the controls, or building your own |
+| [Catalogue](docs/guides/catalogue.md) | Switching between journeys from a custom interface (advanced) |
+
+[Reference](docs/reference.md) lists every command, option and file format. [Troubleshooting](docs/troubleshooting.md) is keyed on the messages you will see. Changes between versions are in the [changelog](CHANGELOG.md), and what Moments will and will not become is in the [roadmap](ROADMAP.md).
+
+## Licence and security
+
+Apache-2.0. Use Moments only on systems you are authorised to exercise, and report vulnerabilities as described in [SECURITY.md](SECURITY.md). To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md).
