@@ -87,10 +87,12 @@ export async function writeReport(receipt: string, runDir: string | undefined, c
     for (const event of timeline.events ?? [])
         if (event.kind === 'observed' && event.checkpointId && event.frame) frames.set(event.checkpointId, event.frame);
     const image = async (frame: string) => `data:image/jpeg;base64,${(await readFile(path.join(recording!, frame))).toString('base64')}`;
+    const proven = new Set<string>();
     const rows = await Promise.all(result.checkpoints.map(async (point, index) => {
         const seen = result.observations.filter(o => o.checkpointId === point.id).at(-1);
         const failed = result.failures.some(f => f.checkpointId === point.id && (!seen || f.at >= seen.at));
         const state = failed ? 'Failed' : seen?.status === 'passed' ? 'Verified' : seen?.status === 'skipped' ? 'Skipped' : 'Not reached';
+        if (state === 'Verified') point.covers?.forEach(c => proven.add(c));
         const frame = frames.get(point.id);
         return `<tr data-state="${state.toLowerCase().replace(' ', '-')}"><td class="n">${index + 1}</td>
 <td><strong>${escape(point.title)}</strong>${point.actor ? `<div class="sub">${escape(point.actor)}</div>` : ''}${point.private ? '<div class="sub">Private: not filmed</div>' : ''}</td>
@@ -101,10 +103,11 @@ export async function writeReport(receipt: string, runDir: string | undefined, c
     const changed = checks?.filter(c => c.state !== 'unchanged') ?? [];
     const integrity = !checks ? 'No manifest was found for this run.'
         : changed.length ? `${changed.length} file${changed.length > 1 ? 's' : ''} differ from the manifest: ${changed.map(c => `${escape(c.path)} (${c.state})`).join(', ')}.`
-        : `All ${checks.length} files match the manifest written when the run ended.`;
+        : `${checks.length === 1 ? 'The 1 file matches' : `All ${checks.length} files match`} the manifest written when the run ended.`;
     const videos = (timeline.segments ?? []).map(segment => segment.lost ? `<li>${escape(segment.file)}: lost when the browser closed</li>`
         : `<li><a href="${escape(portable(home, path.join(recording!, segment.file)))}">${escape(segment.file)}</a></li>`).join('');
-    const covered = [...new Set(result.checkpoints.flatMap(point => point.covers ?? []))];
+    // The summary claims only what this run proved; each row still shows its checkpoint's references.
+    const covered = [...proven];
     const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(result.journeyTitle)}: run ${escape(result.runRef.slice(0, 8))}</title>
 <style>
@@ -134,7 +137,7 @@ h2 { font-size:1rem; margin:2.25rem 0 .5rem; } footer { margin-top:3rem; color:v
 <dt>Run</dt><dd><code>${escape(result.runRef)}</code></dd>
 <dt>Started</dt><dd>${when(result.startedAt)}</dd>
 <dt>Outcome</dt><dd>${escape(result.outcome)}; cleanup ${escape(result.cleanup)}</dd>
-${covered.length ? `<dt>Covers</dt><dd>${covered.map(c => `<code>${escape(c)}</code>`).join(' ')}</dd>` : ''}
+${covered.length ? `<dt>Proven</dt><dd>${covered.map(c => `<code>${escape(c)}</code>`).join(' ')}</dd>` : ''}
 <dt>Integrity</dt><dd>${integrity}</dd>
 </dl>
 <table><thead><tr><th>#</th><th>Checkpoint</th><th>Result</th><th>Covers</th><th>Frame</th></tr></thead><tbody>

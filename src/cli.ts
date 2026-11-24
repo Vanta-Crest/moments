@@ -209,7 +209,7 @@ async function inspectRun(command: 'verify' | 'report', runRef: string | undefin
     if (!checks) throw new UsageError(`No manifest for ${ref}: it is written when a run ends with moments open.`);
     for (const check of checks) process.stdout.write(`  ${check.state.padEnd(10)}${check.path}\n`);
     const changed = checks.filter(check => check.state !== 'unchanged').length;
-    process.stdout.write(changed ? `Moments: ${changed} of ${checks.length} files differ from the manifest.\n` : `Moments: all ${checks.length} files match the manifest.\n`);
+    process.stdout.write(changed ? `Moments: ${changed} of ${checks.length} files differ from the manifest.\n` : checks.length === 1 ? 'Moments: the 1 file matches the manifest.\n' : `Moments: all ${checks.length} files match the manifest.\n`);
     return changed ? 1 : 0;
 }
 
