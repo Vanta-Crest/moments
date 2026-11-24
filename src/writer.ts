@@ -9,9 +9,15 @@ export function validateResult(r: MomentResult): void {
     const exact = (o: object, keys: string[]) => Object.keys(o).every(k => keys.includes(k));
     const id = (s: string) => typeof s === 'string' && /^[a-zA-Z0-9.-]{1,128}$/.test(s);
     const time = (s: string) => typeof s === 'string' && Number.isFinite(Date.parse(s));
-    if (!r || !exact(r, ['schemaVersion', 'packageVersion', 'sessionId', 'runRef', 'journeyId', 'target', 'previousRunRef', 'setup', 'replacementRequested', 'activity', 'startedAt', 'updatedAt', 'observations', 'cleanup', 'failures', 'outcome']) || r.schemaVersion !== 3 || r.packageVersion !== PACKAGE_VERSION || ![r.sessionId, r.runRef, r.journeyId, r.target, ...(r.previousRunRef ? [r.previousRunRef] : [])].every(id) || !time(r.startedAt) || !time(r.updatedAt) || !['preparing', 'ready', 'working', 'needs-attention', 'closing', 'closed'].includes(r.activity) || !['not-attempted', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.cleanup) || !['pending', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.outcome) || !Array.isArray(r.observations) || !Array.isArray(r.failures))
+    if (!r || !exact(r, ['schemaVersion', 'packageVersion', 'sessionId', 'runRef', 'journeyId', 'target', 'previousRunRef', 'selection', 'setup', 'replacementRequested', 'activity', 'startedAt', 'updatedAt', 'observations', 'cleanup', 'failures', 'outcome']) || r.schemaVersion !== 3 || r.packageVersion !== PACKAGE_VERSION || ![r.sessionId, r.runRef, r.journeyId, r.target, ...(r.previousRunRef ? [r.previousRunRef] : [])].every(id) || !time(r.startedAt) || !time(r.updatedAt) || !['preparing', 'ready', 'working', 'needs-attention', 'closing', 'closed'].includes(r.activity) || !['not-attempted', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.cleanup) || !['pending', 'complete', 'neutralized-with-residue', 'incomplete'].includes(r.outcome) || !Array.isArray(r.observations) || !Array.isArray(r.failures))
         throw Error('Invalid Moments result');
     if (r.setup !== undefined) parseMomentSetup(r.setup);
+    if (r.selection !== undefined) {
+        const s = r.selection;
+        if (!s || !exact(s, ['requestRef', 'fromRunRef', 'toRunRef', 'target', 'phase']) || ![s.requestRef, s.fromRunRef, s.toRunRef].every(id)
+            || s.toRunRef !== r.runRef || typeof s.target !== 'string' || !['requested', 'cleaning', 'blocked', 'starting', 'started'].includes(s.phase))
+            throw Error('Invalid Moments selection');
+    }
     if (r.replacementRequested !== undefined) {
         const request = r.replacementRequested;
         if (!request || !exact(request, ['checkpointId', 'setup']) || Object.keys(request).length !== 2
