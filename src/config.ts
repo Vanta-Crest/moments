@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { defineJourney } from './runner.js';
 import { recordLabel } from './writer.js';
 import type { MomentsConfig } from './types.js';
@@ -53,7 +54,8 @@ export async function loadConfig(configPath?: string, cwd = process.cwd()): Prom
     let value: unknown;
     try {
         const { tsImport } = await import('tsx/esm/api');
-        const loaded = await tsImport(path, import.meta.url);
+        // A file URL, not a path: on Windows `C:\…` would read as a URL scheme.
+        const loaded = await tsImport(pathToFileURL(path).href, import.meta.url);
         value = loaded.default;
         // A .ts file outside an ESM package is transformed as CommonJS. Node
         // wraps that module's exports, so its authored default lives one level in.
